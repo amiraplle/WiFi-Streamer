@@ -1,4 +1,4 @@
-name: Build & Test Android App
+name: Build & Package Android APK
 
 on:
   push:
@@ -12,45 +12,67 @@ permissions:
 
 jobs:
   build:
-    name: Build & Package APK
+    name: Build APK & Run Tests
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java JDK 17
+      - name: Set up Java JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
-      - name: Set up Gradle
+      - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
 
-      - name: Prepare environment configuration
+      - name: Prepare environment & locate project
         run: |
-          if [ ! -f .env ] && [ -f .env.example ]; then
-            cp .env.example .env
+          # Locate directory containing settings.gradle.kts
+          if [ -f "settings.gradle.kts" ]; then
+            PROJECT_ROOT="."
+          else
+            PROJECT_ROOT=$(find . -name "settings.gradle.kts" -not -path "*/.*" -exec dirname {} \; | head -n 1)
           fi
-          touch .env
+          echo "PROJECT_ROOT=$PROJECT_ROOT" >> $GITHUB_ENV
+          echo "Using Android project at: $PROJECT_ROOT"
 
-      - name: Ensure Gradle wrapper exists
-        run: |
-          if [ ! -f ./gradlew ]; then
-            gradle wrapper
+          # Prepare .env to satisfy Secrets Gradle Plugin
+          if [ ! -f "$PROJECT_ROOT/.env" ] && [ -f "$PROJECT_ROOT/.env.example" ]; then
+            cp "$PROJECT_ROOT/.env.example" "$PROJECT_ROOT/.env"
           fi
-          chmod +x ./gradlew
+          touch "$PROJECT_ROOT/.env"
+
+          # Ensure gradlew has executable permissions if present
+          if [ -f "$PROJECT_ROOT/gradlew" ]; then
+            chmod +x "$PROJECT_ROOT/gradlew"
+          fi
 
       - name: Run Unit & Robolectric Tests
-        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+        run: |
+          cd ${{ env.PROJECT_ROOT }}
+          if [ -f "./gradlew" ]; then
+            ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+          else
+            gradle :app:testDebugUnitTest --no-daemon --stacktrace
+          fi
 
       - name: Build Debug APK
-        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+        run: |
+          cd ${{ env.PROJECT_ROOT }}
+          if [ -f "./gradlew" ]; then
+            ./gradlew :app:assembleDebug --no-daemon --stacktrace
+          else
+            gradle :app:assembleDebug --no-daemon --stacktrace
+          fi
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: c3-audio-streamer-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: "**/build/outputs/apk/debug/*.apk"
           retention-days: 14
