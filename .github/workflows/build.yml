@@ -39,10 +39,8 @@ jobs:
           echo "PROJECT_ROOT=$PROJECT_ROOT" >> $GITHUB_ENV
           echo "Using Android project at: $PROJECT_ROOT"
 
-          # Prepare .env to satisfy Secrets Gradle Plugin
-          if [ ! -f "$PROJECT_ROOT/.env" ] && [ -f "$PROJECT_ROOT/.env.example" ]; then
-            cp "$PROJECT_ROOT/.env.example" "$PROJECT_ROOT/.env"
-          fi
+          # Prepare .env and .env.example to satisfy Secrets Gradle Plugin
+          touch "$PROJECT_ROOT/.env.example"
           touch "$PROJECT_ROOT/.env"
 
           # Restore or generate debug.keystore
