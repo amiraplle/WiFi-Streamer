@@ -47,4 +47,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun updateAmoledDarkTheme(enabled: Boolean) {
         prefsRepo.updateAmoledDarkTheme(enabled)
     }
+
+    fun updateRatePacing(enabled: Boolean) {
+        prefsRepo.updateRatePacing(enabled)
+    }
 }

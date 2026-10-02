@@ -345,6 +345,25 @@ fun SettingsScreen(
                         colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.primary)
                     )
                 }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Zero-Jitter Rate Pacing", fontWeight = FontWeight.SemiBold)
+                        Text("Regulates outgoing packets at exact real-time playback clock, protecting ESP32-C3 I2S DMA buffer from burst overflows & drops", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = prefs.ratePacing,
+                        onCheckedChange = { viewModel.updateRatePacing(it) },
+                        colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.testTag("rate_pacing_switch")
+                    )
+                }
             }
         }
 

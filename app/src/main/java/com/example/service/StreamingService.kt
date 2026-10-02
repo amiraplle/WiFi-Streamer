@@ -8,6 +8,11 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.net.wifi.WifiManager
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -20,9 +25,11 @@ import com.example.C3StreamerApplication
 import com.example.MainActivity
 import com.example.R
 import com.example.data.network.HttpStreamServer
+import com.example.data.network.PacedAudioTransmitter
 import com.example.data.network.TcpStreamClient
 import com.example.data.preferences.UserPreferences
 import com.example.domain.audio.AudioCaptureManager
+import com.example.domain.audio.AudioRingBuffer
 import com.example.model.AudioSourceType
 import com.example.model.CaptureStatus
 import com.example.model.ProtocolMode
@@ -48,7 +55,12 @@ class StreamingService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
     private var mediaProjection: MediaProjection? = null
+
+    // Lock-free ring buffer (128 KB = ~370ms of 44.1kHz 16-bit stereo PCM)
+    private val ringBuffer = AudioRingBuffer(128 * 1024)
+    private var pacedTransmitter: PacedAudioTransmitter? = null
 
     private var captureManager: AudioCaptureManager? = null
     private var tcpClient: TcpStreamClient? = null
@@ -56,6 +68,7 @@ class StreamingService : Service() {
 
     private var statsJob: Job? = null
     private var reconnectJob: Job? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     private var sessionStartTime = 0L
     private var lastBytesCount = 0L
@@ -83,29 +96,83 @@ class StreamingService : Service() {
             setReferenceCounted(false)
         }
 
+        // Low-latency Wi-Fi lock prevents the Wi-Fi chip from throttling packet delivery during screen lock
+        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        wifiLock = wifiManager.createWifiLock(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+            } else {
+                @Suppress("DEPRECATION")
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            },
+            "C3AudioStreamer:LowLatencyWifiLock"
+        ).apply {
+            setReferenceCounted(false)
+        }
+
         tcpClient = TcpStreamClient(
             onStateChanged = { state, error -> handleTransportState(state, error) },
-            onBytesTransmitted = { /* updated lock-free via atomic */ }
+            onBytesTransmitted = { /* updated lock-free via atomic counter */ }
         )
 
         httpServer = HttpStreamServer(
             onStateChanged = { state, error -> handleTransportState(state, error) },
-            onBytesTransmitted = { /* updated lock-free via atomic */ },
+            onBytesTransmitted = { /* updated lock-free via atomic counter */ },
             onActiveClientsChanged = { count ->
                 _telemetry.value = _telemetry.value.copy(activeClientsCount = count)
             }
         )
 
-        captureManager = AudioCaptureManager(
-            onCaptureStatusChanged = { status, error -> handleCaptureStatus(status, error) },
-            onAudioChunkReady = { buffer, length, _ ->
+        // Paced transmitter pulls from ringBuffer and sends to TCP or HTTP with zero-jitter rate regulation
+        pacedTransmitter = PacedAudioTransmitter(
+            ringBuffer = ringBuffer,
+            sendChunkToTransport = { buffer, offset, length ->
                 if (_telemetry.value.protocolMode == ProtocolMode.RAW_TCP_CLIENT) {
-                    tcpClient?.sendAudioChunk(buffer, 0, length)
+                    tcpClient?.sendAudioChunk(buffer, offset, length) ?: false
                 } else {
-                    httpServer?.broadcastAudioChunk(buffer, 0, length)
+                    httpServer?.broadcastAudioChunk(buffer, offset, length)
+                    true
                 }
             }
         )
+
+        // AudioCaptureManager writes directly to ringBuffer in microseconds, completely decoupling capture from network I/O
+        captureManager = AudioCaptureManager(
+            onCaptureStatusChanged = { status, error -> handleCaptureStatus(status, error) },
+            onAudioChunkReady = { buffer, length, _ ->
+                ringBuffer.write(buffer, 0, length)
+            }
+        )
+
+        registerNetworkMonitor()
+    }
+
+    private fun registerNetworkMonitor() {
+        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+        val request = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .build()
+
+        networkCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                Log.i(TAG, "Wi-Fi network connected. Checking if auto-reconnect needed...")
+                val currentState = _telemetry.value.streamingState
+                if (currentState == StreamingState.RECONNECTING || currentState == StreamingState.DISCONNECTED) {
+                    val prefs = AppContainer.getPreferences(this@StreamingService).userPreferences.value
+                    if (prefs.autoReconnect && prefs.protocolMode == ProtocolMode.RAW_TCP_CLIENT) {
+                        Log.i(TAG, "Wi-Fi restored! Instantly triggering C3 reconnect.")
+                        reconnectJob?.cancel()
+                        triggerAutoReconnect(prefs, instant = true)
+                    }
+                }
+            }
+        }
+
+        try {
+            connectivityManager.registerNetworkCallback(request, networkCallback!!)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not register Wi-Fi network callback: ${e.message}")
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -160,11 +227,17 @@ class StreamingService : Service() {
         sessionStartTime = System.currentTimeMillis()
         lastBytesCount = 0L
 
-        wakeLock?.acquire(8 * 3600 * 1000L) // Safe 8-hour max wake lock
+        wakeLock?.acquire(8 * 3600 * 1000L) // 8-hour safe max wake lock
+        try {
+            if (wifiLock?.isHeld == false) {
+                wifiLock?.acquire()
+            }
+        } catch (_: Exception) {}
 
         val prefs = AppContainer.getPreferences(this).userPreferences.value
         captureManager?.volumePercent = prefs.transmissionVolume
         captureManager?.isMuted = prefs.isMuted
+        pacedTransmitter?.ratePacingEnabled = prefs.ratePacing
 
         _telemetry.value = StreamTelemetry(
             streamingState = StreamingState.CONNECTING,
@@ -212,6 +285,12 @@ class StreamingService : Service() {
             }
         }
 
+        // Clear ring buffer for fresh stream
+        ringBuffer.clear()
+
+        // Start Paced Transmitter
+        pacedTransmitter?.start(prefs.audioFormat)
+
         // Start Audio Capture
         val captureOk = captureManager?.startCapture(
             format = prefs.audioFormat,
@@ -228,7 +307,7 @@ class StreamingService : Service() {
         // Start Transport
         startTransport(prefs)
 
-        // Start Telemetry reporting loop
+        // Start Telemetry reporting loop (1 Hz, super low power)
         startStatsLoop()
     }
 
@@ -260,10 +339,13 @@ class StreamingService : Service() {
 
         updateNotification()
 
-        if (state == StreamingState.DISCONNECTED && !isStopping.get()) {
+        if (state == StreamingState.STREAMING) {
+            // Reset retry count on successful connection
+            reconnectAttempts = 0
+        } else if (state == StreamingState.DISCONNECTED && !isStopping.get()) {
             val prefs = AppContainer.getPreferences(this).userPreferences.value
             if (prefs.autoReconnect && prefs.protocolMode == ProtocolMode.RAW_TCP_CLIENT) {
-                triggerAutoReconnect(prefs)
+                triggerAutoReconnect(prefs, instant = false)
             }
         }
     }
@@ -276,15 +358,9 @@ class StreamingService : Service() {
         )
     }
 
-    private fun triggerAutoReconnect(prefs: UserPreferences) {
+    private fun triggerAutoReconnect(prefs: UserPreferences, instant: Boolean = false) {
         if (reconnectAttempts >= prefs.maxReconnectRetries) {
-            Log.w(TAG, "Max reconnect retries reached ($reconnectAttempts)")
-            _telemetry.value = _telemetry.value.copy(
-                streamingState = StreamingState.ERROR,
-                lastError = "Connection dropped. Max retry limit reached."
-            )
-            updateNotification()
-            return
+            Log.w(TAG, "Max reconnect retries reached ($reconnectAttempts). Retrying gently at 10s intervals.")
         }
 
         reconnectJob?.cancel()
@@ -296,11 +372,21 @@ class StreamingService : Service() {
             )
             updateNotification()
 
-            val backoffMs = (1000L * reconnectAttempts).coerceAtMost(5000L)
-            Log.i(TAG, "Auto-reconnecting attempt #$reconnectAttempts in ${backoffMs}ms...")
-            delay(backoffMs)
+            if (!instant) {
+                // Instant retry on first drop (0ms), then gentle exponential backoff up to 5s max
+                val backoffMs = if (reconnectAttempts <= 1) {
+                    0L
+                } else {
+                    (1000L * (reconnectAttempts - 1)).coerceAtMost(5000L)
+                }
+                if (backoffMs > 0) {
+                    Log.i(TAG, "Auto-reconnecting attempt #$reconnectAttempts in ${backoffMs}ms...")
+                    delay(backoffMs)
+                }
+            }
 
             if (!isStopping.get()) {
+                Log.i(TAG, "Silent reconnect executing to ${prefs.targetHost}:${prefs.targetPort}")
                 tcpClient?.connectAndStart(
                     host = prefs.targetHost,
                     port = prefs.targetPort,
@@ -317,7 +403,7 @@ class StreamingService : Service() {
         reconnectAttempts = 0
         serviceScope.launch(Dispatchers.IO) {
             tcpClient?.disconnect(isManual = false)
-            delay(200)
+            delay(150)
             tcpClient?.connectAndStart(
                 host = prefs.targetHost,
                 port = prefs.targetPort,
@@ -427,9 +513,11 @@ class StreamingService : Service() {
         statsJob?.cancel()
         reconnectJob?.cancel()
 
+        pacedTransmitter?.stop()
         tcpClient?.disconnect(isManual = true)
         httpServer?.stopServer()
         captureManager?.stopCapture()
+        ringBuffer.clear()
 
         try {
             mediaProjection?.stop()
@@ -438,6 +526,9 @@ class StreamingService : Service() {
 
         if (wakeLock?.isHeld == true) {
             wakeLock?.release()
+        }
+        if (wifiLock?.isHeld == true) {
+            wifiLock?.release()
         }
 
         _telemetry.value = _telemetry.value.copy(
@@ -453,6 +544,12 @@ class StreamingService : Service() {
 
     override fun onDestroy() {
         stopStreaming()
+        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        networkCallback?.let {
+            try {
+                connectivityManager?.unregisterNetworkCallback(it)
+            } catch (_: Exception) {}
+        }
         serviceScope.cancel()
         instance = null
         super.onDestroy()

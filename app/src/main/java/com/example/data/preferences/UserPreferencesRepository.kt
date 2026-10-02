@@ -25,8 +25,9 @@ data class UserPreferences(
     val transmissionVolume: Int = 100,
     val isMuted: Boolean = false,
     val autoReconnect: Boolean = true,
-    val maxReconnectRetries: Int = 5,
+    val maxReconnectRetries: Int = 15,
     val connectionTimeoutMs: Int = 5000,
+    val ratePacing: Boolean = true,
     val keepAliveSilence: Boolean = true,
     val amoledDarkTheme: Boolean = true
 ) {
@@ -64,8 +65,9 @@ class UserPreferencesRepository(context: Context) {
             transmissionVolume = prefs.getInt("transmission_volume", 100),
             isMuted = prefs.getBoolean("is_muted", false),
             autoReconnect = prefs.getBoolean("auto_reconnect", true),
-            maxReconnectRetries = prefs.getInt("max_reconnect_retries", 5),
+            maxReconnectRetries = prefs.getInt("max_reconnect_retries", 15),
             connectionTimeoutMs = prefs.getInt("conn_timeout_ms", 5000),
+            ratePacing = prefs.getBoolean("rate_pacing", true),
             keepAliveSilence = prefs.getBoolean("keep_alive_silence", true),
             amoledDarkTheme = prefs.getBoolean("amoled_dark_theme", true)
         )
@@ -118,6 +120,11 @@ class UserPreferencesRepository(context: Context) {
     fun setMuted(muted: Boolean) {
         prefs.edit().putBoolean("is_muted", muted).apply()
         _userPreferences.value = _userPreferences.value.copy(isMuted = muted)
+    }
+
+    fun updateRatePacing(enabled: Boolean) {
+        prefs.edit().putBoolean("rate_pacing", enabled).apply()
+        _userPreferences.value = _userPreferences.value.copy(ratePacing = enabled)
     }
 
     fun updateNetworkSettings(

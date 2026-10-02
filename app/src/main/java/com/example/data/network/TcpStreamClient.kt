@@ -39,8 +39,14 @@ class TcpStreamClient(
         return try {
             Log.i(TAG, "Connecting TCP socket to $host:$port (Timeout: ${timeoutMs}ms)")
             val newSocket = Socket()
+            // Low latency and high priority socket flags
             newSocket.tcpNoDelay = true
-            newSocket.sendBufferSize = 64 * 1024
+            newSocket.keepAlive = true
+            try {
+                // IPTOS_LOWDELAY = 0x10 (DSCP EF / Interactive)
+                newSocket.trafficClass = 0x10
+            } catch (_: Exception) {}
+            newSocket.sendBufferSize = 32 * 1024
             newSocket.soTimeout = 10000
 
             newSocket.connect(InetSocketAddress(host, port), timeoutMs)
@@ -60,11 +66,11 @@ class TcpStreamClient(
             outputStream = os
             isConnected.set(true)
             onStateChanged(StreamingState.STREAMING, null)
-            Log.i(TAG, "TCP connected and streaming to $host:$port")
+            Log.i(TAG, "TCP connected and streaming smoothly to $host:$port")
             true
         } catch (e: Exception) {
             val errMsg = "Connection failed to $host:$port: ${e.message}"
-            Log.e(TAG, errMsg, e)
+            Log.e(TAG, errMsg)
             closeSocket()
             onStateChanged(StreamingState.ERROR, errMsg)
             false
@@ -72,7 +78,7 @@ class TcpStreamClient(
     }
 
     /**
-     * Sends an audio chunk. Called by the streaming pipeline.
+     * Sends an audio chunk. Called by the streaming transmitter.
      */
     fun sendAudioChunk(buffer: ByteArray, offset: Int, length: Int): Boolean {
         if (!isConnected.get() || isManuallyStopped.get()) return false
@@ -87,7 +93,7 @@ class TcpStreamClient(
         } catch (e: IOException) {
             if (!isManuallyStopped.get()) {
                 val errMsg = "TCP network transmission error: ${e.message}"
-                Log.e(TAG, errMsg)
+                Log.w(TAG, errMsg)
                 closeSocket()
                 onStateChanged(StreamingState.DISCONNECTED, errMsg)
             }
