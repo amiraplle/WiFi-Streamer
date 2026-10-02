@@ -1,0 +1,6 @@
+{
+  "name": "C3 Audio Streamer",
+  "description": "High-performance, low-latency Wi-Fi audio streamer for ESP32-C3 receivers and local HTTP playback.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
