@@ -77,9 +77,9 @@ jobs:
         run: |
           cd ${{ env.PROJECT_ROOT }}
           if [ -f "./gradlew" ]; then
-            ./gradlew :app:assembleDebug --no-daemon --stacktrace
+            ./gradlew :app:assembleDebug --no-daemon
           else
-            gradle :app:assembleDebug --no-daemon --stacktrace
+            gradle :app:assembleDebug --no-daemon
           fi
 
       - name: Upload Debug APK Artifact
