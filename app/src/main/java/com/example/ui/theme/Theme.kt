@@ -8,16 +8,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 private val AmoledDarkColorScheme = darkColorScheme(
-    primary = ElectricCyan,
-    onPrimary = OnElectricCyan,
-    primaryContainer = ElectricCyanContainer,
-    onPrimaryContainer = ElectricCyan,
-    secondary = NeonViolet,
-    onSecondary = Color(0xFF1E004B),
-    secondaryContainer = NeonVioletContainer,
-    onSecondaryContainer = NeonViolet,
+    primary = GlowingGray,
+    onPrimary = OnGlowingGray,
+    primaryContainer = GlowingGrayContainer,
+    onPrimaryContainer = GlowingGrayLight,
+    secondary = SlateSilver,
+    onSecondary = Color(0xFF101217),
+    secondaryContainer = SlateSilverContainer,
+    onSecondaryContainer = GlowingGrayLight,
     tertiary = StreamEmerald,
-    onTertiary = Color(0xFF00391A),
+    onTertiary = Color(0xFF0B2115),
     tertiaryContainer = StreamEmeraldContainer,
     onTertiaryContainer = StreamEmerald,
     background = AmoledBlack,
@@ -27,7 +27,7 @@ private val AmoledDarkColorScheme = darkColorScheme(
     surfaceVariant = DarkSurfaceVariant,
     onSurfaceVariant = TextSecondary,
     outline = DarkCardBorder,
-    outlineVariant = Color(0xFF182233),
+    outlineVariant = Color(0xFF1E2430),
     error = ErrorCoral,
     onError = Color.Black
 )

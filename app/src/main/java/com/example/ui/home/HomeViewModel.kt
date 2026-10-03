@@ -98,4 +98,34 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     fun selectAudioSource(source: AudioSourceType) {
         prefsRepo.updateAudioSource(source)
     }
+
+    fun setDspEnabled(enabled: Boolean) {
+        prefsRepo.updateDspEnabled(enabled)
+        StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun setEqPreset(presetName: String, gains: FloatArray) {
+        prefsRepo.updateEqPreset(presetName, gains)
+        StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun setEqBand(bandIndex: Int, gainDb: Float) {
+        prefsRepo.updateEqBand(bandIndex, gainDb)
+        StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun setSoftLimiter(enabled: Boolean) {
+        prefsRepo.updateSoftLimiter(enabled)
+        StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun setBassBoost(percent: Int) {
+        prefsRepo.updateBassBoost(percent)
+        StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun setTrebleClarity(percent: Int) {
+        prefsRepo.updateTrebleClarity(percent)
+        StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
 }

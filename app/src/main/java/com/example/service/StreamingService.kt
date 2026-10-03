@@ -6,8 +6,11 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.AudioManager
+import android.media.VolumeProvider
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.media.session.MediaSession
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -74,6 +77,10 @@ class StreamingService : Service() {
     private var lastBytesCount = 0L
     private var reconnectAttempts = 0
     private val isStopping = AtomicBoolean(false)
+
+    private var audioManager: AudioManager? = null
+    private var savedLocalMediaVolume: Int = -1
+    private var mediaSession: MediaSession? = null
 
     private val _telemetry = MutableStateFlow(StreamTelemetry())
     val telemetry: StateFlow<StreamTelemetry> = _telemetry.asStateFlow()
@@ -304,6 +311,12 @@ class StreamingService : Service() {
             return
         }
 
+        // Apply DSP configuration and engage remote volume / mute phone speaker
+        isStreaming = true
+        updateDspSettings(prefs)
+        mutePhoneSpeakerAndSaveVolume()
+        setupMediaSession()
+
         // Start Transport
         startTransport(prefs)
 
@@ -415,13 +428,84 @@ class StreamingService : Service() {
     }
 
     fun setVolume(volume: Int) {
-        captureManager?.volumePercent = volume
-        _telemetry.value = _telemetry.value.copy(volumePercent = volume)
+        val clamped = volume.coerceIn(0, 100)
+        captureManager?.volumePercent = clamped
+        _telemetry.value = _telemetry.value.copy(volumePercent = clamped)
+    }
+
+    fun adjustRemoteVolume(delta: Int) {
+        val prefsRepo = AppContainer.getPreferences(this)
+        val current = _telemetry.value.volumePercent
+        val newVol = (current + delta).coerceIn(0, 100)
+        setVolume(newVol)
+        prefsRepo.updateVolume(newVol)
     }
 
     fun setMuted(muted: Boolean) {
         captureManager?.isMuted = muted
         _telemetry.value = _telemetry.value.copy(isMuted = muted)
+    }
+
+    fun updateDspSettings(prefs: UserPreferences) {
+        captureManager?.dspEngine?.apply {
+            isEnabled = prefs.dspEnabled
+            isSoftLimiterEnabled = prefs.softLimiterEnabled
+            bassBoostPercent = prefs.bassBoostPercent
+            trebleClarityPercent = prefs.trebleClarityPercent
+            setAllBandGains(prefs.eqBandGains)
+        }
+    }
+
+    private fun mutePhoneSpeakerAndSaveVolume() {
+        try {
+            if (audioManager == null) {
+                audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            }
+            val am = audioManager ?: return
+            savedLocalMediaVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+            Log.i(TAG, "Preserving phone local media volume: $savedLocalMediaVolume. Muting phone speaker.")
+            // Mute phone speaker (flag 0 avoids showing Android volume toast)
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not mute phone speaker: ${e.message}")
+        }
+    }
+
+    private fun restorePhoneSpeakerVolume() {
+        try {
+            val am = audioManager ?: return
+            if (savedLocalMediaVolume >= 0) {
+                Log.i(TAG, "Restoring phone local media volume to: $savedLocalMediaVolume")
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, savedLocalMediaVolume, 0)
+                savedLocalMediaVolume = -1
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not restore phone volume: ${e.message}")
+        }
+    }
+
+    private fun setupMediaSession() {
+        try {
+            val prefs = AppContainer.getPreferences(this).userPreferences.value
+            mediaSession?.release()
+            mediaSession = MediaSession(this, "C3AudioStreamerSession").apply {
+                val volumeProvider = object : VolumeProvider(
+                    VOLUME_CONTROL_RELATIVE,
+                    100,
+                    prefs.transmissionVolume
+                ) {
+                    override fun onAdjustVolume(direction: Int) {
+                        // Intercepts physical Volume Up (+1) and Volume Down (-1) in background / lock screen
+                        adjustRemoteVolume(direction * 5)
+                    }
+                }
+                setPlaybackToRemote(volumeProvider)
+                isActive = true
+            }
+            Log.i(TAG, "MediaSession active for background volume key interception")
+        } catch (e: Exception) {
+            Log.w(TAG, "MediaSession setup failed: ${e.message}")
+        }
     }
 
     private fun startStatsLoop() {
@@ -510,6 +594,14 @@ class StreamingService : Service() {
     fun stopStreaming() {
         if (isStopping.getAndSet(true)) return
 
+        isStreaming = false
+        restorePhoneSpeakerVolume()
+        try {
+            mediaSession?.isActive = false
+            mediaSession?.release()
+        } catch (_: Exception) {}
+        mediaSession = null
+
         statsJob?.cancel()
         reconnectJob?.cancel()
 
@@ -563,6 +655,9 @@ class StreamingService : Service() {
 
         var projectionResultCode: Int = 0
         var projectionIntentData: Intent? = null
+
+        @Volatile
+        var isStreaming: Boolean = false
 
         var instance: StreamingService? = null
             private set

@@ -5,7 +5,8 @@ import java.util.Arrays
 object PcmAudioProcessor {
 
     /**
-     * Applies volume scaling and mute in-place directly on the raw PCM byte buffer.
+     * Applies optional DSP (EQ, bass boost, treble clarity, soft limiter)
+     * and volume scaling/mute in-place directly on the raw PCM byte buffer.
      * ZERO allocations occur during this hot path.
      */
     fun processInPlace(
@@ -13,15 +14,20 @@ object PcmAudioProcessor {
         length: Int,
         bitDepth: Int,
         volumePercent: Int,
-        isMuted: Boolean
+        isMuted: Boolean,
+        dspEngine: AudioDspEngine? = null,
+        channels: Int = 2
     ) {
         if (isMuted || volumePercent <= 0) {
             Arrays.fill(buffer, 0, length, 0.toByte())
             return
         }
 
+        // Apply real-time EQ, tone shaping, and peak soft-limiter
+        dspEngine?.process(buffer, length, bitDepth, channels)
+
         if (volumePercent >= 100) {
-            return // No processing needed for full volume
+            return // No volume attenuation needed for full volume
         }
 
         val volumeFactor = volumePercent / 100f

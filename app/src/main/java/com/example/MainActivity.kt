@@ -2,6 +2,7 @@ package com.example
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -61,6 +62,24 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
     }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // Intercept physical volume buttons during active streaming
+        // Prevents phone media volume from changing; controls remote C3 receiver volume instead
+        if (com.example.service.StreamingService.isStreaming) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_VOLUME_UP -> {
+                    com.example.service.StreamingService.instance?.adjustRemoteVolume(5)
+                    return true
+                }
+                KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                    com.example.service.StreamingService.instance?.adjustRemoteVolume(-5)
+                    return true
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
 }
 
 @Composable
@@ -100,6 +119,7 @@ fun MainAppContent(
                                 contentDescription = screen.title
                             )
                         },
+                        alwaysShowLabel = false,
                         label = { Text(screen.title) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = MaterialTheme.colorScheme.primary,

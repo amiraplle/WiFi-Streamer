@@ -286,7 +286,7 @@ fun ReceiversScreen(
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
-                            Text("Use Now", color = Color.Black, fontWeight = FontWeight.Bold)
+                            Text("Use Now", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

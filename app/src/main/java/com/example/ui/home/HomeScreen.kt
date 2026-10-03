@@ -33,19 +33,31 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Router
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VolumeMute
+import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -53,6 +65,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -62,6 +76,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -171,19 +186,12 @@ fun HomeScreen(
                         )
                     }
                     Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            text = "Target Receiver",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = "${prefs.targetHost}:${prefs.targetPort}",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
+                    Text(
+                        text = "${prefs.targetHost}:${prefs.targetPort}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                 }
                 Surface(
                     color = statusColor.copy(alpha = 0.15f),
@@ -266,13 +274,17 @@ fun HomeScreen(
                             shape = RoundedCornerShape(12.dp),
                             border = BorderStroke(1.dp, StreamEmerald.copy(alpha = 0.35f))
                         ) {
-                            Text(
-                                text = "Zero-Jitter Paced",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold,
-                                color = StreamEmerald,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                            )
+                            Box(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Bolt,
+                                    contentDescription = "Paced",
+                                    tint = StreamEmerald,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -280,9 +292,10 @@ fun HomeScreen(
                 // Audio Source Selector (Internal Audio vs Microphone)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     val isInternal = prefs.audioSource == AudioSourceType.INTERNAL_AUDIO
+                    val isMic = prefs.audioSource == AudioSourceType.MICROPHONE
 
                     // Internal Audio Button
                     OutlinedButton(
@@ -303,13 +316,14 @@ fun HomeScreen(
                             if (isInternal) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
                         )
                     ) {
-                        Icon(Icons.Default.GraphicEq, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Internal Audio", maxLines = 1, fontSize = 12.sp)
+                        Icon(
+                            Icons.Default.PhoneAndroid,
+                            contentDescription = "Internal Audio",
+                            tint = if (isInternal) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
 
                     // Microphone Button
-                    val isMic = prefs.audioSource == AudioSourceType.MICROPHONE
                     OutlinedButton(
                         onClick = {
                             if (!isStreaming) {
@@ -331,9 +345,11 @@ fun HomeScreen(
                             if (isMic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
                         )
                     ) {
-                        Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Microphone", maxLines = 1, fontSize = 12.sp)
+                        Icon(
+                            Icons.Default.Mic,
+                            contentDescription = "Microphone",
+                            tint = if (isMic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
 
@@ -393,16 +409,16 @@ fun HomeScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                             shape = RoundedCornerShape(14.dp)
                         ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = "Start", tint = Color.Black)
+                            Icon(Icons.Default.PlayArrow, contentDescription = "Start", tint = MaterialTheme.colorScheme.onPrimary)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Start Streaming", fontWeight = FontWeight.Bold, color = Color.Black)
+                            Text("Start Streaming", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
                         }
                     }
                 }
             }
         }
 
-        // Transmission Volume & Mute Card
+        // Remote Receiver Volume & Physical Button Interception Card
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -415,19 +431,50 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Transmission Volume",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Speaker,
+                            contentDescription = "Receiver Volume",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        if (isStreaming) {
+                            Surface(
+                                color = StreamEmerald.copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.PhoneAndroid,
+                                        contentDescription = "Phone Muted",
+                                        tint = StreamEmerald,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Icon(
+                                        Icons.Default.VolumeOff,
+                                        contentDescription = "Muted",
+                                        tint = StreamEmerald,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                     Text(
                         text = if (prefs.isMuted) "MUTED" else "${prefs.transmissionVolume}%",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = if (prefs.isMuted) ErrorCoral else MaterialTheme.colorScheme.primary
                     )
                 }
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -458,25 +505,210 @@ fun HomeScreen(
             }
         }
 
-        // Live Real-Time Telemetry Grid
-        Text(
-            text = "LIVE TELEMETRY",
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        // In-App Audio DSP & Hardware Protection Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = "DSP",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Switch(
+                        checked = prefs.dspEnabled,
+                        onCheckedChange = { viewModel.setDspEnabled(it) },
+                        modifier = Modifier.testTag("dsp_master_switch"),
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = MaterialTheme.colorScheme.primary,
+                            checkedTrackColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    )
+                }
 
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Hardware Protection: Peak Limiter
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, if (prefs.softLimiterEnabled) StreamEmerald.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outline)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(
+                                imageVector = Icons.Default.Security,
+                                contentDescription = "Protection",
+                                tint = if (prefs.softLimiterEnabled) StreamEmerald else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Surface(
+                                color = if (prefs.softLimiterEnabled) StreamEmerald.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface,
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = "0 dBFS",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (prefs.softLimiterEnabled) StreamEmerald else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = prefs.softLimiterEnabled,
+                            onCheckedChange = { viewModel.setSoftLimiter(it) },
+                            modifier = Modifier.testTag("soft_limiter_switch")
+                        )
+                    }
+                }
+
+                if (prefs.dspEnabled) {
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Bass Boost (Low Frequencies)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GraphicEq,
+                            contentDescription = "Bass",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Slider(
+                            value = prefs.bassBoostPercent.toFloat(),
+                            onValueChange = { viewModel.setBassBoost(it.toInt()) },
+                            valueRange = 0f..100f,
+                            modifier = Modifier.weight(1f).testTag("bass_boost_slider")
+                        )
+                        Text(
+                            text = "${prefs.bassBoostPercent}%",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.width(36.dp)
+                        )
+                    }
+
+                    // Treble Clarity (High Frequencies)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = "Treble",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Slider(
+                            value = prefs.trebleClarityPercent.toFloat(),
+                            onValueChange = { viewModel.setTrebleClarity(it.toInt()) },
+                            valueRange = 0f..100f,
+                            modifier = Modifier.weight(1f).testTag("treble_clarity_slider")
+                        )
+                        Text(
+                            text = "${prefs.trebleClarityPercent}%",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.width(36.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // 5-Band Equalizer Presets
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val presets = listOf(
+                            "Flat" to com.example.domain.audio.AudioDspEngine.PRESET_FLAT,
+                            "Bass" to com.example.domain.audio.AudioDspEngine.PRESET_BASS_BOOST,
+                            "Vocal" to com.example.domain.audio.AudioDspEngine.PRESET_VOCAL,
+                            "Acoustic" to com.example.domain.audio.AudioDspEngine.PRESET_ACOUSTIC,
+                            "Rock" to com.example.domain.audio.AudioDspEngine.PRESET_ROCK
+                        )
+                        presets.forEach { (name, gains) ->
+                            val isSelected = prefs.eqPresetName.equals(name, ignoreCase = true)
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { viewModel.setEqPreset(name, gains) },
+                                label = { Text(name, fontSize = 11.sp) },
+                                modifier = Modifier.testTag("eq_preset_$name")
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // 5 Bands
+                    val bandFrequencies = listOf("100", "300", "1k", "3.5k", "8k")
+                    val currentGains = listOf(prefs.eqBand0, prefs.eqBand1, prefs.eqBand2, prefs.eqBand3, prefs.eqBand4)
+
+                    bandFrequencies.forEachIndexed { index, label ->
+                        val gain = currentGains[index]
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.width(36.dp)
+                            )
+                            Slider(
+                                value = gain,
+                                onValueChange = { viewModel.setEqBand(index, it) },
+                                valueRange = -12f..12f,
+                                modifier = Modifier.weight(1f).testTag("eq_band_$index")
+                            )
+                            Text(
+                                text = "${if (gain > 0) "+" else ""}${gain.toInt()}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.width(32.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Live Real-Time Telemetry Grid
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             TelemetryTile(
-                title = "Live Bitrate",
+                icon = Icons.Default.Speed,
                 value = if (isStreaming) "${telemetry.currentBitrateKbps} kbps" else "0 kbps",
                 modifier = Modifier.weight(1f)
             )
             TelemetryTile(
-                title = "Transmitted",
+                icon = Icons.Default.CloudUpload,
                 value = telemetry.formattedDataTransmitted,
                 modifier = Modifier.weight(1f)
             )
@@ -487,30 +719,31 @@ fun HomeScreen(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             TelemetryTile(
-                title = "Duration",
+                icon = Icons.Default.Timer,
                 value = telemetry.formattedDuration,
                 modifier = Modifier.weight(1f)
             )
             TelemetryTile(
-                title = "Capture Engine",
+                icon = Icons.Default.GraphicEq,
                 value = when (telemetry.captureStatus) {
-                    CaptureStatus.CAPTURING -> "Active PCM"
-                    CaptureStatus.SILENCE -> "Silence (Standby)"
-                    CaptureStatus.INITIALIZING -> "Initializing"
+                    CaptureStatus.CAPTURING -> "PCM"
+                    CaptureStatus.SILENCE -> "Silence"
+                    CaptureStatus.INITIALIZING -> "Init"
                     CaptureStatus.PAUSED -> "Paused"
-                    CaptureStatus.ERROR -> "Capture Error"
+                    CaptureStatus.ERROR -> "Error"
                     CaptureStatus.IDLE -> "Standby"
                 },
                 modifier = Modifier.weight(1f),
-                valueColor = if (telemetry.captureStatus == CaptureStatus.CAPTURING) StreamEmerald else MaterialTheme.colorScheme.onSurface
+                iconTint = if (telemetry.captureStatus == CaptureStatus.CAPTURING) StreamEmerald else MaterialTheme.colorScheme.primary
             )
         }
 
         if (telemetry.reconnectCount > 0) {
             TelemetryTile(
-                title = "Reconnect Count",
-                value = "${telemetry.reconnectCount} attempts",
+                icon = Icons.Default.Refresh,
+                value = "${telemetry.reconnectCount} retries",
                 modifier = Modifier.fillMaxWidth(),
+                iconTint = WarningAmber,
                 valueColor = WarningAmber
             )
         }
@@ -542,9 +775,10 @@ fun HomeScreen(
 
 @Composable
 fun TelemetryTile(
-    title: String,
+    icon: ImageVector,
     value: String,
     modifier: Modifier = Modifier,
+    iconTint: Color = MaterialTheme.colorScheme.primary,
     valueColor: Color = MaterialTheme.colorScheme.onSurface
 ) {
     Card(
@@ -553,16 +787,20 @@ fun TelemetryTile(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         shape = RoundedCornerShape(14.dp)
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(20.dp)
             )
-            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = value,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
                 color = valueColor

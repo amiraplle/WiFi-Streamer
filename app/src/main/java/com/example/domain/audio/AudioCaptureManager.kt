@@ -46,6 +46,8 @@ class AudioCaptureManager(
     @Volatile
     var isMuted: Boolean = false
 
+    val dspEngine = AudioDspEngine()
+
     @SuppressLint("MissingPermission")
     fun startCapture(
         format: AudioStreamFormat,
@@ -59,6 +61,7 @@ class AudioCaptureManager(
 
         currentFormat = format
         currentSource = sourceType
+        dspEngine.setSampleRate(format.sampleRate)
 
         onCaptureStatusChanged(CaptureStatus.INITIALIZING, null)
 
@@ -181,13 +184,15 @@ class AudioCaptureManager(
             val bytesRead = record.read(buffer, 0, buffer.size)
 
             if (bytesRead > 0) {
-                // Apply volume scaling and mute in-place (zero allocations)
+                // Apply DSP (EQ, bass boost, treble clarity, soft limiter) and volume scaling/mute in-place
                 PcmAudioProcessor.processInPlace(
                     buffer = buffer,
                     length = bytesRead,
                     bitDepth = currentFormat.bitDepth,
                     volumePercent = volumePercent,
-                    isMuted = isMuted
+                    isMuted = isMuted,
+                    dspEngine = dspEngine,
+                    channels = currentFormat.channelCount
                 )
 
                 // Detect silence
