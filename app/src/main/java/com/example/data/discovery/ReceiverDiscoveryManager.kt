@@ -5,6 +5,7 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import android.util.Log
+import com.example.data.network.NetworkUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -49,11 +50,15 @@ class ReceiverDiscoveryManager(private val context: Context) {
 
         acquireMulticastLock()
 
-        // Probe default c3music.local in background coroutine
         scanJob = scope.launch {
-            probeC3MusicLocal()
+            // 1. Proactively probe default mDNS hostname c3music.local
+            launch { probeC3MusicLocal() }
 
+            // 2. Start Android NSD discovery for mDNS advertisements
             startNsdDiscovery()
+
+            // 3. Actively scan the local /24 subnet for any ESP32-C3 listening on port 50005
+            launch { scanSubnetForC3Receivers() }
 
             delay(timeoutMs)
             stopDiscovery()
@@ -87,7 +92,46 @@ class ReceiverDiscoveryManager(private val context: Context) {
 
             addDiscoveredReceiver(c3)
         } catch (e: Exception) {
-            Log.d(TAG, "c3music.local not resolved yet: ${e.message}")
+            Log.d(TAG, "c3music.local not resolved via mDNS: ${e.message}")
+        }
+    }
+
+    /**
+     * Scans the local Wi-Fi /24 subnet (e.g. 192.168.1.1 to 192.168.1.254) on port 50005.
+     * Guarantees finding the ESP32-C3 even if the router drops mDNS / multicast packets.
+     */
+    private suspend fun scanSubnetForC3Receivers() = withContext(Dispatchers.IO) {
+        val localIp = NetworkUtils.getLocalIpAddress(context) ?: return@withContext
+        val lastDotIndex = localIp.lastIndexOf('.')
+        if (lastDotIndex <= 0) return@withContext
+        val prefix = localIp.substring(0, lastDotIndex + 1)
+
+        // Scan in batches of 32 concurrent probes to be light on the router
+        (1..254).chunked(32).forEach { batch ->
+            val jobs = batch.map { hostNum ->
+                val targetIp = "$prefix$hostNum"
+                if (targetIp == localIp) return@map null
+                launch {
+                    try {
+                        val startTime = System.currentTimeMillis()
+                        val socket = Socket()
+                        socket.connect(InetSocketAddress(targetIp, 50005), 400)
+                        val pingMs = System.currentTimeMillis() - startTime
+                        socket.close()
+
+                        val discovered = DiscoveredReceiver(
+                            name = "ESP32-C3 Receiver ($targetIp)",
+                            host = targetIp,
+                            port = 50005,
+                            isC3Default = true,
+                            pingMs = pingMs
+                        )
+                        addDiscoveredReceiver(discovered)
+                        Log.i(TAG, "Found active C3 receiver on subnet: $targetIp:50005 in ${pingMs}ms")
+                    } catch (_: Exception) {}
+                }
+            }
+            jobs.filterNotNull().forEach { it.join() }
         }
     }
 

@@ -26,6 +26,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import com.example.ui.home.HomeScreen
 import com.example.ui.home.HomeViewModel
 import com.example.ui.navigation.Screen
@@ -41,9 +46,27 @@ class MainActivity : ComponentActivity() {
     private val receiversViewModel: ReceiversViewModel by viewModels()
     private val settingsViewModel: SettingsViewModel by viewModels()
 
+    private val startupPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ -> }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Request POST_NOTIFICATIONS and NEARBY_WIFI_DEVICES on Android 13+ (API 33+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val neededPermissions = mutableListOf<String>()
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                neededPermissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
+                neededPermissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            }
+            if (neededPermissions.isNotEmpty()) {
+                startupPermissionLauncher.launch(neededPermissions.toTypedArray())
+            }
+        }
 
         setContent {
             val userPrefs by settingsViewModel.userPreferences.collectAsState()

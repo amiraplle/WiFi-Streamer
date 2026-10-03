@@ -15,7 +15,7 @@ data class UserPreferences(
     val targetHost: String = "c3music.local",
     val targetPort: Int = 50005,
     val httpPort: Int = 8080,
-    val protocolMode: ProtocolMode = ProtocolMode.RAW_TCP_CLIENT,
+    val protocolMode: ProtocolMode = ProtocolMode.RAW_TCP_SERVER,
     val audioSource: AudioSourceType = AudioSourceType.INTERNAL_AUDIO,
     val sampleRate: Int = 44100,
     val bitDepth: Int = 16,
@@ -60,9 +60,11 @@ class UserPreferencesRepository(context: Context) {
             targetHost = prefs.getString("target_host", "c3music.local") ?: "c3music.local",
             targetPort = prefs.getInt("target_port", 50005),
             httpPort = prefs.getInt("http_port", 8080),
-            protocolMode = ProtocolMode.valueOf(
-                prefs.getString("protocol_mode", ProtocolMode.RAW_TCP_CLIENT.name) ?: ProtocolMode.RAW_TCP_CLIENT.name
-            ),
+            protocolMode = try {
+                ProtocolMode.valueOf(prefs.getString("protocol_mode", ProtocolMode.RAW_TCP_SERVER.name) ?: ProtocolMode.RAW_TCP_SERVER.name)
+            } catch (_: Exception) {
+                ProtocolMode.RAW_TCP_SERVER
+            },
             audioSource = AudioSourceType.valueOf(
                 prefs.getString("audio_source", AudioSourceType.INTERNAL_AUDIO.name) ?: AudioSourceType.INTERNAL_AUDIO.name
             ),

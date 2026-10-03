@@ -71,6 +71,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -85,7 +86,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.AudioSourceType
 import com.example.model.CaptureStatus
+import com.example.model.ProtocolMode
 import com.example.model.StreamingState
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import com.example.data.network.NetworkUtils
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.ErrorCoral
 import com.example.ui.theme.StreamEmerald
@@ -100,13 +105,16 @@ fun HomeScreen(
     val context = LocalContext.current
     val telemetry by viewModel.telemetry.collectAsState()
     val prefs by viewModel.userPreferences.collectAsState()
+    val localIp = remember { NetworkUtils.getLocalIpAddress(context) ?: "Checking Wi-Fi..." }
 
-    // Permission launcher for RECORD_AUDIO
+    // Permission launcher for RECORD_AUDIO (Microphone only)
     val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (!granted) {
-            Toast.makeText(context, "Microphone permission is required for audio streaming", Toast.LENGTH_LONG).show()
+        if (granted) {
+            viewModel.startStreaming(context, 0, null)
+        } else {
+            Toast.makeText(context, "Microphone permission is required for microphone streaming", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -117,7 +125,7 @@ fun HomeScreen(
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             viewModel.startStreaming(context, result.resultCode, result.data)
         } else {
-            Toast.makeText(context, "Internal audio capture permission denied", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Audio cast permission was cancelled. Please allow screen/audio capture to stream internal audio.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -186,12 +194,30 @@ fun HomeScreen(
                         )
                     }
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = "${prefs.targetHost}:${prefs.targetPort}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    Column {
+                        val titleText = when (prefs.protocolMode) {
+                            ProtocolMode.RAW_TCP_SERVER -> "TCP Server :${prefs.targetPort}"
+                            ProtocolMode.RAW_TCP_CLIENT -> "${prefs.targetHost}:${prefs.targetPort}"
+                            ProtocolMode.HTTP_SERVER -> "HTTP Server :${prefs.httpPort}"
+                        }
+                        val subtitleText = when (prefs.protocolMode) {
+                            ProtocolMode.RAW_TCP_SERVER -> "Phone IP: $localIp (for C3)"
+                            ProtocolMode.RAW_TCP_CLIENT -> "Target Receiver"
+                            ProtocolMode.HTTP_SERVER -> "http://$localIp:${prefs.httpPort}"
+                        }
+                        Text(
+                            text = titleText,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = subtitleText,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
                 Surface(
                     color = statusColor.copy(alpha = 0.15f),
@@ -390,7 +416,6 @@ fun HomeScreen(
                     } else {
                         Button(
                             onClick = {
-                                recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
                                 if (prefs.audioSource == AudioSourceType.INTERNAL_AUDIO) {
                                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                                         val mediaProjectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -399,7 +424,16 @@ fun HomeScreen(
                                         Toast.makeText(context, "Internal audio requires Android 10+", Toast.LENGTH_SHORT).show()
                                     }
                                 } else {
-                                    viewModel.startStreaming(context, 0, null)
+                                    val hasMicPermission = ContextCompat.checkSelfPermission(
+                                        context,
+                                        android.Manifest.permission.RECORD_AUDIO
+                                    ) == PackageManager.PERMISSION_GRANTED
+
+                                    if (hasMicPermission) {
+                                        viewModel.startStreaming(context, 0, null)
+                                    } else {
+                                        recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                                    }
                                 }
                             },
                             modifier = Modifier
