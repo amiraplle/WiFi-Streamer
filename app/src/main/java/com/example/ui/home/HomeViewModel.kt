@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.AppContainer
 import com.example.domain.audio.AudioDeviceCapabilityDetector
 import com.example.model.AudioSourceType
+import com.example.model.AudioStreamFormat
 import com.example.model.CaptureStatus
 import com.example.model.StreamTelemetry
 import com.example.model.StreamingState
@@ -135,5 +136,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setMutePhoneWhileStreaming(enabled: Boolean) {
         prefsRepo.updateMutePhoneWhileStreaming(enabled)
+    }
+
+    val supportedFormatCapabilities = AudioDeviceCapabilityDetector.getSupportedPresets()
+
+    fun updateAudioFormat(format: AudioStreamFormat) {
+        prefsRepo.updateAudioFormat(format.sampleRate, format.bitDepth, format.channelCount)
     }
 }

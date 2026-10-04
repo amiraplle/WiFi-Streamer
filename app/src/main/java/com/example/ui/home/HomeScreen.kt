@@ -28,12 +28,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
@@ -56,6 +59,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -71,7 +76,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -299,23 +306,103 @@ fun HomeScreen(
                     }
                 }
 
-                // Audio Format & Bitrate Chip
+                // Audio Format Dropdown & Pacing Indicator
+                var formatDropdownExpanded by remember { mutableStateOf(false) }
+                val supportedFormats = viewModel.supportedFormatCapabilities
+
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                    ) {
-                        Text(
-                            text = "${telemetry.format.displayName} • ${telemetry.format.bitrateKbps} kbps",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                        )
+                    Box(modifier = Modifier.wrapContentSize(Alignment.Center)) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(
+                                1.dp,
+                                if (formatDropdownExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                            ),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable(enabled = !isStreaming && !isConnecting) {
+                                    formatDropdownExpanded = true
+                                }
+                                .testTag("audio_format_dropdown_trigger")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MusicNote,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "${prefs.audioFormat.displayName} • ${prefs.audioFormat.bitrateKbps} kbps",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                if (!isStreaming && !isConnecting) {
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = "Select Audio Format",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = formatDropdownExpanded,
+                            onDismissRequest = { formatDropdownExpanded = false },
+                            modifier = Modifier
+                                .background(MaterialTheme.colorScheme.surface)
+                                .testTag("audio_format_dropdown_menu")
+                        ) {
+                            supportedFormats.forEach { cap ->
+                                val isSelected = prefs.audioFormat == cap.format
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(
+                                                text = cap.format.displayName,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = "${cap.format.bitrateKbps} kbps • ${if (cap.isSupported) "Supported" else "Unsupported"}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    },
+                                    leadingIcon = {
+                                        if (isSelected) {
+                                            Icon(
+                                                Icons.Default.Check,
+                                                contentDescription = "Selected",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        } else {
+                                            Spacer(modifier = Modifier.size(20.dp))
+                                        }
+                                    },
+                                    onClick = {
+                                        viewModel.updateAudioFormat(cap.format)
+                                        formatDropdownExpanded = false
+                                    },
+                                    modifier = Modifier.testTag("format_option_${cap.format.sampleRate}_${cap.format.channelCount}")
+                                )
+                            }
+                        }
                     }
 
                     if (prefs.ratePacing) {
@@ -325,7 +412,7 @@ fun HomeScreen(
                             border = BorderStroke(1.dp, StreamEmerald.copy(alpha = 0.35f))
                         ) {
                             Box(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
