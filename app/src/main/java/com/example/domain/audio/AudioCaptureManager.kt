@@ -122,19 +122,33 @@ class AudioCaptureManager(
                             .setBufferSizeInBytes(bufferBytes)
                             .build()
                     } catch (e: Exception) {
-                        Log.w(TAG, "Primary AudioRecord build failed (${e.message}), trying 48000Hz fallback...")
-                        // Fallback: try 48000Hz native hardware mixer rate if 44100Hz was rejected
-                        val fallbackFormat = AudioFormat.Builder()
-                            .setEncoding(audioEncoding)
-                            .setSampleRate(48000)
-                            .setChannelMask(channelConfig)
-                            .build()
-                        val fallbackMin = AudioRecord.getMinBufferSize(48000, channelConfig, audioEncoding)
-                        AudioRecord.Builder()
-                            .setAudioPlaybackCaptureConfig(playbackConfig)
-                            .setAudioFormat(fallbackFormat)
-                            .setBufferSizeInBytes(fallbackMin * 2)
-                            .build()
+                        Log.w(TAG, "Primary AudioRecord build failed (${e.message}), trying 16-bit fallback...")
+                        try {
+                            val fallbackFormat = AudioFormat.Builder()
+                                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                                .setSampleRate(sampleRate)
+                                .setChannelMask(channelConfig)
+                                .build()
+                            val fallbackMin = AudioRecord.getMinBufferSize(sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT)
+                            AudioRecord.Builder()
+                                .setAudioPlaybackCaptureConfig(playbackConfig)
+                                .setAudioFormat(fallbackFormat)
+                                .setBufferSizeInBytes(fallbackMin * 2)
+                                .build()
+                        } catch (e2: Exception) {
+                            Log.w(TAG, "Secondary 16-bit build failed (${e2.message}), trying 48000Hz 16-bit hardware rate...")
+                            val fallback48k = AudioFormat.Builder()
+                                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                                .setSampleRate(48000)
+                                .setChannelMask(channelConfig)
+                                .build()
+                            val min48k = AudioRecord.getMinBufferSize(48000, channelConfig, AudioFormat.ENCODING_PCM_16BIT)
+                            AudioRecord.Builder()
+                                .setAudioPlaybackCaptureConfig(playbackConfig)
+                                .setAudioFormat(fallback48k)
+                                .setBufferSizeInBytes(min48k * 2)
+                                .build()
+                        }
                     }
                 } else {
                     val err = "Internal audio capture requires Android 10 (API 29) or higher"

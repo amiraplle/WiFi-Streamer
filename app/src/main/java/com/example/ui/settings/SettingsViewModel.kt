@@ -51,4 +51,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun updateRatePacing(enabled: Boolean) {
         prefsRepo.updateRatePacing(enabled)
     }
+
+    fun updateMutePhoneWhileStreaming(enabled: Boolean) {
+        prefsRepo.updateMutePhoneWhileStreaming(enabled)
+    }
 }

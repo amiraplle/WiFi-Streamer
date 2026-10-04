@@ -107,17 +107,6 @@ fun HomeScreen(
     val prefs by viewModel.userPreferences.collectAsState()
     val localIp = remember { NetworkUtils.getLocalIpAddress(context) ?: "Checking Wi-Fi..." }
 
-    // Permission launcher for RECORD_AUDIO (Microphone only)
-    val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            viewModel.startStreaming(context, 0, null)
-        } else {
-            Toast.makeText(context, "Microphone permission is required for microphone streaming", Toast.LENGTH_LONG).show()
-        }
-    }
-
     // MediaProjection permission launcher for Internal Audio
     val mediaProjectionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -126,6 +115,26 @@ fun HomeScreen(
             viewModel.startStreaming(context, result.resultCode, result.data)
         } else {
             Toast.makeText(context, "Audio cast permission was cancelled. Please allow screen/audio capture to stream internal audio.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Permission launcher for RECORD_AUDIO (Mandatory for both Internal Audio & Mic capture)
+    val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            if (prefs.audioSource == AudioSourceType.INTERNAL_AUDIO) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val mediaProjectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                    mediaProjectionLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
+                } else {
+                    Toast.makeText(context, "Internal audio requires Android 10+", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                viewModel.startStreaming(context, 0, null)
+            }
+        } else {
+            Toast.makeText(context, "Audio recording permission is required to stream audio", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -394,6 +403,50 @@ fun HomeScreen(
                     }
                 }
 
+                // Silence Phone Speaker Toggle
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (prefs.mutePhoneWhileStreaming) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                            contentDescription = "Silence Phone",
+                            tint = if (prefs.mutePhoneWhileStreaming) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "Silence Phone Speaker",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = if (prefs.mutePhoneWhileStreaming) "Phone will stay silent while streaming" else "Phone speaker plays along with receiver",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = prefs.mutePhoneWhileStreaming,
+                        onCheckedChange = { viewModel.setMutePhoneWhileStreaming(it) },
+                        colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.testTag("home_silence_phone_switch")
+                    )
+                }
+
                 // Action Buttons: Start / Stop / Reconnect
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -431,6 +484,16 @@ fun HomeScreen(
                     } else {
                         Button(
                             onClick = {
+                                val hasAudioPermission = ContextCompat.checkSelfPermission(
+                                    context,
+                                    android.Manifest.permission.RECORD_AUDIO
+                                ) == PackageManager.PERMISSION_GRANTED
+
+                                if (!hasAudioPermission) {
+                                    recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                                    return@Button
+                                }
+
                                 if (prefs.audioSource == AudioSourceType.INTERNAL_AUDIO) {
                                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                                         val mediaProjectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -439,16 +502,7 @@ fun HomeScreen(
                                         Toast.makeText(context, "Internal audio requires Android 10+", Toast.LENGTH_SHORT).show()
                                     }
                                 } else {
-                                    val hasMicPermission = ContextCompat.checkSelfPermission(
-                                        context,
-                                        android.Manifest.permission.RECORD_AUDIO
-                                    ) == PackageManager.PERMISSION_GRANTED
-
-                                    if (hasMicPermission) {
-                                        viewModel.startStreaming(context, 0, null)
-                                    } else {
-                                        recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                                    }
+                                    viewModel.startStreaming(context, 0, null)
                                 }
                             },
                             modifier = Modifier

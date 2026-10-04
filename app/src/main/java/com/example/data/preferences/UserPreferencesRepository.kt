@@ -39,7 +39,8 @@ data class UserPreferences(
     val eqBand4: Float = 0f,
     val softLimiterEnabled: Boolean = true,
     val bassBoostPercent: Int = 0,
-    val trebleClarityPercent: Int = 0
+    val trebleClarityPercent: Int = 0,
+    val mutePhoneWhileStreaming: Boolean = false
 ) {
     val audioFormat: AudioStreamFormat
         get() = AudioStreamFormat(sampleRate, bitDepth, channelCount)
@@ -94,7 +95,8 @@ class UserPreferencesRepository(context: Context) {
             eqBand4 = prefs.getFloat("eq_band_4", 0f),
             softLimiterEnabled = prefs.getBoolean("soft_limiter_enabled", true),
             bassBoostPercent = prefs.getInt("bass_boost_percent", 0),
-            trebleClarityPercent = prefs.getInt("treble_clarity_percent", 0)
+            trebleClarityPercent = prefs.getInt("treble_clarity_percent", 0),
+            mutePhoneWhileStreaming = prefs.getBoolean("mute_phone_while_streaming", false)
         )
     }
 
@@ -235,5 +237,10 @@ class UserPreferencesRepository(context: Context) {
         val clamped = percent.coerceIn(0, 100)
         prefs.edit().putInt("treble_clarity_percent", clamped).apply()
         _userPreferences.value = _userPreferences.value.copy(trebleClarityPercent = clamped)
+    }
+
+    fun updateMutePhoneWhileStreaming(enabled: Boolean) {
+        prefs.edit().putBoolean("mute_phone_while_streaming", enabled).apply()
+        _userPreferences.value = _userPreferences.value.copy(mutePhoneWhileStreaming = enabled)
     }
 }

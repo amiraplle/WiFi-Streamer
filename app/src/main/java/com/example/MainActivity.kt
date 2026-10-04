@@ -54,18 +54,21 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Request POST_NOTIFICATIONS and NEARBY_WIFI_DEVICES on Android 13+ (API 33+)
+        // Request RECORD_AUDIO, POST_NOTIFICATIONS and NEARBY_WIFI_DEVICES
+        val neededPermissions = mutableListOf<String>()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            neededPermissions.add(Manifest.permission.RECORD_AUDIO)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val neededPermissions = mutableListOf<String>()
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 neededPermissions.add(Manifest.permission.POST_NOTIFICATIONS)
             }
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
                 neededPermissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
             }
-            if (neededPermissions.isNotEmpty()) {
-                startupPermissionLauncher.launch(neededPermissions.toTypedArray())
-            }
+        }
+        if (neededPermissions.isNotEmpty()) {
+            startupPermissionLauncher.launch(neededPermissions.toTypedArray())
         }
 
         setContent {
@@ -84,24 +87,6 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-    }
-
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        // Intercept physical volume buttons during active streaming
-        // Prevents phone media volume from changing; controls remote C3 receiver volume instead
-        if (com.example.service.StreamingService.isStreaming) {
-            when (keyCode) {
-                KeyEvent.KEYCODE_VOLUME_UP -> {
-                    com.example.service.StreamingService.instance?.adjustRemoteVolume(5)
-                    return true
-                }
-                KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                    com.example.service.StreamingService.instance?.adjustRemoteVolume(-5)
-                    return true
-                }
-            }
-        }
-        return super.onKeyDown(keyCode, event)
     }
 }
 

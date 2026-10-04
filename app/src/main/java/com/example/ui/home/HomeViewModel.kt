@@ -132,4 +132,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         prefsRepo.updateTrebleClarity(percent)
         StreamingService.instance?.updateDspSettings(userPreferences.value)
     }
+
+    fun setMutePhoneWhileStreaming(enabled: Boolean) {
+        prefsRepo.updateMutePhoneWhileStreaming(enabled)
+    }
 }

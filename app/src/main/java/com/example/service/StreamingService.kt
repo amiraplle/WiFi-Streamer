@@ -79,10 +79,7 @@ class StreamingService : Service() {
     private var lastBytesCount = 0L
     private var reconnectAttempts = 0
     private val isStopping = AtomicBoolean(false)
-
-    private var audioManager: AudioManager? = null
-    private var savedLocalMediaVolume: Int = -1
-    private var mediaSession: MediaSession? = null
+    private var savedPhoneVolume: Int = -1
 
     private val _telemetry = MutableStateFlow(StreamTelemetry())
     val telemetry: StateFlow<StreamTelemetry> = _telemetry.asStateFlow()
@@ -224,13 +221,11 @@ class StreamingService : Service() {
             content = "Preparing audio streaming pipeline…"
         )
 
-        val prefs = AppContainer.getPreferences(this).userPreferences.value
-        val isInternalAudio = prefs.audioSource == AudioSourceType.INTERNAL_AUDIO
-        val hasProjection = projectionIntentData != null || isInternalAudio
+        val hasProjection = projectionIntentData != null && projectionResultCode != 0
 
         val serviceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            if (hasProjection) {
+            if (hasProjection && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             }
             type
@@ -247,9 +242,13 @@ class StreamingService : Service() {
             )
             Log.i(TAG, "startForeground succeeded with type=$serviceType")
         } catch (e: Exception) {
-            Log.w(TAG, "Failed startForeground with type $serviceType, falling back to 0: ${e.message}")
+            Log.w(TAG, "Failed startForeground with type $serviceType, falling back to MICROPHONE: ${e.message}")
             try {
-                ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, 0)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+                } else {
+                    ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, 0)
+                }
             } catch (e2: Exception) {
                 Log.e(TAG, "Fallback startForeground also failed: ${e2.message}")
             }
@@ -349,11 +348,12 @@ class StreamingService : Service() {
             return
         }
 
-        // Apply DSP configuration and engage remote volume / mute phone speaker
+        // Apply DSP configuration
         isStreaming = true
         updateDspSettings(prefs)
-        mutePhoneSpeakerAndSaveVolume()
-        setupMediaSession()
+        if (prefs.mutePhoneWhileStreaming) {
+            silencePhoneSpeaker()
+        }
 
         // Start Transport
         startTransport(prefs)
@@ -504,55 +504,27 @@ class StreamingService : Service() {
         }
     }
 
-    private fun mutePhoneSpeakerAndSaveVolume() {
+    private fun silencePhoneSpeaker() {
         try {
-            if (audioManager == null) {
-                audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            }
-            val am = audioManager ?: return
-            savedLocalMediaVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC)
-            Log.i(TAG, "Preserving phone local media volume: $savedLocalMediaVolume. Muting phone speaker.")
-            // Mute phone speaker (flag 0 avoids showing Android volume toast)
+            val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+            savedPhoneVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+            Log.i(TAG, "Silence phone speaker enabled. Saved volume: $savedPhoneVolume")
             am.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
         } catch (e: Exception) {
-            Log.w(TAG, "Could not mute phone speaker: ${e.message}")
+            Log.w(TAG, "Could not silence phone speaker: ${e.message}")
         }
     }
 
-    private fun restorePhoneSpeakerVolume() {
+    private fun restorePhoneSpeaker() {
         try {
-            val am = audioManager ?: return
-            if (savedLocalMediaVolume >= 0) {
-                Log.i(TAG, "Restoring phone local media volume to: $savedLocalMediaVolume")
-                am.setStreamVolume(AudioManager.STREAM_MUSIC, savedLocalMediaVolume, 0)
-                savedLocalMediaVolume = -1
+            val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+            if (savedPhoneVolume >= 0) {
+                Log.i(TAG, "Restoring phone volume to: $savedPhoneVolume")
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, savedPhoneVolume, 0)
+                savedPhoneVolume = -1
             }
         } catch (e: Exception) {
             Log.w(TAG, "Could not restore phone volume: ${e.message}")
-        }
-    }
-
-    private fun setupMediaSession() {
-        try {
-            val prefs = AppContainer.getPreferences(this).userPreferences.value
-            mediaSession?.release()
-            mediaSession = MediaSession(this, "C3AudioStreamerSession").apply {
-                val volumeProvider = object : VolumeProvider(
-                    VOLUME_CONTROL_RELATIVE,
-                    100,
-                    prefs.transmissionVolume
-                ) {
-                    override fun onAdjustVolume(direction: Int) {
-                        // Intercepts physical Volume Up (+1) and Volume Down (-1) in background / lock screen
-                        adjustRemoteVolume(direction * 5)
-                    }
-                }
-                setPlaybackToRemote(volumeProvider)
-                isActive = true
-            }
-            Log.i(TAG, "MediaSession active for background volume key interception")
-        } catch (e: Exception) {
-            Log.w(TAG, "MediaSession setup failed: ${e.message}")
         }
     }
 
@@ -643,13 +615,7 @@ class StreamingService : Service() {
         if (isStopping.getAndSet(true)) return
 
         isStreaming = false
-        restorePhoneSpeakerVolume()
-        try {
-            mediaSession?.isActive = false
-            mediaSession?.release()
-        } catch (_: Exception) {}
-        mediaSession = null
-
+        restorePhoneSpeaker()
         statsJob?.cancel()
         reconnectJob?.cancel()
 

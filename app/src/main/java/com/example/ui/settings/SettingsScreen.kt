@@ -425,6 +425,29 @@ fun SettingsScreen(
                         modifier = Modifier.testTag("rate_pacing_switch")
                     )
                 }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Silence Phone Speaker During Stream", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Automatically sets phone media volume to 0 when streaming starts and restores it on stop. If your phone model captures silence when muted, turn this OFF and use 1 volume bar instead.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = prefs.mutePhoneWhileStreaming,
+                        onCheckedChange = { viewModel.updateMutePhoneWhileStreaming(it) },
+                        colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.testTag("mute_phone_speaker_switch")
+                    )
+                }
             }
         }
 
