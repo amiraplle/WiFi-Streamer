@@ -195,6 +195,16 @@ class StreamingService : Service() {
         val action = intent?.action ?: ACTION_START
         when (action) {
             ACTION_START -> {
+                val code = intent?.getIntExtra("result_code", 0) ?: 0
+                val data = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent?.getParcelableExtra("intent_data", Intent::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent?.getParcelableExtra("intent_data")
+                }
+                if (code != 0) projectionResultCode = code
+                if (data != null) projectionIntentData = data
+
                 startForegroundWithNotification()
                 startStreamingPipeline()
             }
@@ -214,8 +224,16 @@ class StreamingService : Service() {
             content = "Preparing audio streaming pipeline…"
         )
 
+        val prefs = AppContainer.getPreferences(this).userPreferences.value
+        val isInternalAudio = prefs.audioSource == AudioSourceType.INTERNAL_AUDIO
+        val hasProjection = projectionIntentData != null || isInternalAudio
+
         val serviceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            if (hasProjection) {
+                type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            }
+            type
         } else {
             0
         }
@@ -227,6 +245,7 @@ class StreamingService : Service() {
                 notification,
                 serviceType
             )
+            Log.i(TAG, "startForeground succeeded with type=$serviceType")
         } catch (e: Exception) {
             Log.w(TAG, "Failed startForeground with type $serviceType, falling back to 0: ${e.message}")
             try {
@@ -272,20 +291,24 @@ class StreamingService : Service() {
             val projData = projectionIntentData
             val projCode = projectionResultCode
             if (projData != null && projCode != 0) {
-                val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                mediaProjection = mpManager.getMediaProjection(projCode, projData)
-                mediaProjection?.registerCallback(object : MediaProjection.Callback() {
-                    override fun onStop() {
-                        Log.w(TAG, "MediaProjection stopped by system")
-                        mediaProjection = null
-                        if (!isStopping.get()) {
-                            _telemetry.value = _telemetry.value.copy(
-                                captureStatus = CaptureStatus.ERROR,
-                                lastError = "MediaProjection revoked by system"
-                            )
+                try {
+                    val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                    mediaProjection = mpManager.getMediaProjection(projCode, projData)
+                    mediaProjection?.registerCallback(object : MediaProjection.Callback() {
+                        override fun onStop() {
+                            Log.w(TAG, "MediaProjection stopped by system")
+                            mediaProjection = null
+                            if (!isStopping.get()) {
+                                _telemetry.value = _telemetry.value.copy(
+                                    captureStatus = CaptureStatus.ERROR,
+                                    lastError = "MediaProjection revoked by system"
+                                )
+                            }
                         }
-                    }
-                }, null)
+                    }, null)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to get MediaProjection: ${e.message}", e)
+                }
 
                 // If on Android 14+ and media projection is active, upgrade FGS type
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

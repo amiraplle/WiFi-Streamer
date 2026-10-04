@@ -62,6 +62,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
         val startIntent = Intent(context, StreamingService::class.java).apply {
             action = StreamingService.ACTION_START
+            putExtra("result_code", resultCode)
+            if (data != null) {
+                putExtra("intent_data", data)
+            }
         }
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             context.startForegroundService(startIntent)

@@ -93,17 +93,19 @@ class AudioCaptureManager(
             audioRecord = if (sourceType == AudioSourceType.INTERNAL_AUDIO) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     if (mediaProjection == null) {
-                        val err = "MediaProjection is null for Internal Audio capture"
+                        val err = "Internal audio requires screen/audio cast permission. Please tap Start again."
                         Log.e(TAG, err)
                         onCaptureStatusChanged(CaptureStatus.ERROR, err)
                         return false
                     }
 
-                    val playbackConfig = AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
+                    val playbackConfigBuilder = AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
                         .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
                         .addMatchingUsage(AudioAttributes.USAGE_GAME)
-                        .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
-                        .build()
+                    try {
+                        playbackConfigBuilder.addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+                    } catch (_: Exception) {}
+                    val playbackConfig = playbackConfigBuilder.build()
 
                     val audioFormat = AudioFormat.Builder()
                         .setEncoding(audioEncoding)
@@ -111,11 +113,29 @@ class AudioCaptureManager(
                         .setChannelMask(channelConfig)
                         .build()
 
-                    AudioRecord.Builder()
-                        .setAudioPlaybackCaptureConfig(playbackConfig)
-                        .setAudioFormat(audioFormat)
-                        .setBufferSizeInBytes(bufferSize * 2)
-                        .build()
+                    val bufferBytes = (bufferSize * 2).coerceAtLeast(minHardwareBufferSize * 2)
+
+                    try {
+                        AudioRecord.Builder()
+                            .setAudioPlaybackCaptureConfig(playbackConfig)
+                            .setAudioFormat(audioFormat)
+                            .setBufferSizeInBytes(bufferBytes)
+                            .build()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Primary AudioRecord build failed (${e.message}), trying 48000Hz fallback...")
+                        // Fallback: try 48000Hz native hardware mixer rate if 44100Hz was rejected
+                        val fallbackFormat = AudioFormat.Builder()
+                            .setEncoding(audioEncoding)
+                            .setSampleRate(48000)
+                            .setChannelMask(channelConfig)
+                            .build()
+                        val fallbackMin = AudioRecord.getMinBufferSize(48000, channelConfig, audioEncoding)
+                        AudioRecord.Builder()
+                            .setAudioPlaybackCaptureConfig(playbackConfig)
+                            .setAudioFormat(fallbackFormat)
+                            .setBufferSizeInBytes(fallbackMin * 2)
+                            .build()
+                    }
                 } else {
                     val err = "Internal audio capture requires Android 10 (API 29) or higher"
                     Log.e(TAG, err)
@@ -128,12 +148,12 @@ class AudioCaptureManager(
                     sampleRate,
                     channelConfig,
                     audioEncoding,
-                    bufferSize * 2
+                    (bufferSize * 2).coerceAtLeast(minHardwareBufferSize * 2)
                 )
             }
 
             if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                val err = "AudioRecord failed to initialize (State: ${audioRecord?.state})"
+                val err = "AudioRecord failed to initialize (State: ${audioRecord?.state})."
                 Log.e(TAG, err)
                 audioRecord?.release()
                 audioRecord = null
