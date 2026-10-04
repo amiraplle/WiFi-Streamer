@@ -391,11 +391,24 @@ class StreamingService : Service() {
         }
     }
 
-    private fun handleTransportState(state: StreamingState, error: String?) {
+    private fun handleTransportState(state: StreamingState, infoOrError: String?) {
         val current = _telemetry.value
+        val isStreamingNow = state == StreamingState.STREAMING
+        val newError = when {
+            isStreamingNow -> null // Clear previous errors when successfully streaming
+            state == StreamingState.ERROR || state == StreamingState.DISCONNECTED -> infoOrError
+            else -> null
+        }
+        val clientAddress = when {
+            isStreamingNow && infoOrError != null && !infoOrError.startsWith("Waiting") -> infoOrError
+            state == StreamingState.IDLE || state == StreamingState.DISCONNECTED -> null
+            else -> current.connectedClientAddress
+        }
+
         _telemetry.value = current.copy(
             streamingState = state,
-            lastError = error ?: current.lastError
+            lastError = newError,
+            connectedClientAddress = clientAddress
         )
 
         updateNotification()

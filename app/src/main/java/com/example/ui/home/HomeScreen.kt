@@ -938,10 +938,62 @@ fun HomeScreen(
             )
         }
 
-        // Error Banner if present
-        if (telemetry.lastError != null) {
+        // Dynamic Live Connection & Status Banner
+        if (isStreaming && telemetry.streamingState == StreamingState.STREAMING) {
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("streaming_connected_banner"),
+                colors = CardDefaults.cardColors(containerColor = StreamEmerald.copy(alpha = 0.12f)),
+                border = BorderStroke(1.dp, StreamEmerald.copy(alpha = 0.45f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Check, contentDescription = "Connected", tint = StreamEmerald)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = if (telemetry.connectedClientAddress != null) {
+                            "ESP32-C3 Connected (${telemetry.connectedClientAddress}) • Transmitting Audio"
+                        } else {
+                            "ESP32-C3 Connected • Transmitting Audio"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = StreamEmerald
+                    )
+                }
+            }
+        } else if (isStreaming && telemetry.streamingState == StreamingState.CONNECTING) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("streaming_connecting_banner"),
+                colors = CardDefaults.cardColors(containerColor = WarningAmber.copy(alpha = 0.12f)),
+                border = BorderStroke(1.dp, WarningAmber.copy(alpha = 0.45f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Router, contentDescription = "Listening", tint = WarningAmber)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "Listening on port ${prefs.targetPort} • Waiting for ESP32-C3 to connect...",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = WarningAmber
+                    )
+                }
+            }
+        } else if (telemetry.lastError != null && telemetry.streamingState != StreamingState.STREAMING) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("streaming_error_banner"),
                 colors = CardDefaults.cardColors(containerColor = ErrorCoral.copy(alpha = 0.12f)),
                 border = BorderStroke(1.dp, ErrorCoral.copy(alpha = 0.5f)),
                 shape = RoundedCornerShape(12.dp)

@@ -84,7 +84,8 @@ class TcpStreamServer(
                         clientSocket = client
                         outputStream = os
                         isClientConnected.set(true)
-                        onStateChanged(StreamingState.STREAMING, null)
+                        val clientIp = client.inetAddress?.hostAddress
+                        onStateChanged(StreamingState.STREAMING, clientIp)
                     } catch (e: Exception) {
                         if (isRunning.get()) {
                             Log.w(TAG, "Accept loop exception: ${e.message}")

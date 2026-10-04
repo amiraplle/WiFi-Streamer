@@ -16,7 +16,8 @@ data class StreamTelemetry(
     val isMuted: Boolean = false,
     val lastError: String? = null,
     val bufferHealthPercent: Int = 100,
-    val activeClientsCount: Int = 0
+    val activeClientsCount: Int = 0,
+    val connectedClientAddress: String? = null
 ) {
     val formattedDuration: String
         get() {
