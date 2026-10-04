@@ -194,16 +194,11 @@ fun HomeScreen(
                         )
                     }
                     Spacer(modifier = Modifier.width(12.dp))
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         val titleText = when (prefs.protocolMode) {
-                            ProtocolMode.RAW_TCP_SERVER -> "TCP Server :${prefs.targetPort}"
-                            ProtocolMode.RAW_TCP_CLIENT -> "${prefs.targetHost}:${prefs.targetPort}"
+                            ProtocolMode.RAW_TCP_SERVER -> "Phone TCP Server :${prefs.targetPort}"
+                            ProtocolMode.RAW_TCP_CLIENT -> "Target: ${prefs.targetHost}:${prefs.targetPort}"
                             ProtocolMode.HTTP_SERVER -> "HTTP Server :${prefs.httpPort}"
-                        }
-                        val subtitleText = when (prefs.protocolMode) {
-                            ProtocolMode.RAW_TCP_SERVER -> "Phone IP: $localIp (for C3)"
-                            ProtocolMode.RAW_TCP_CLIENT -> "Target Receiver"
-                            ProtocolMode.HTTP_SERVER -> "http://$localIp:${prefs.httpPort}"
                         }
                         Text(
                             text = titleText,
@@ -211,12 +206,32 @@ fun HomeScreen(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        Text(
-                            text = subtitleText,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                                    val clip = android.content.ClipData.newPlainText("Phone IP", localIp)
+                                    clipboard?.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Phone IP copied: $localIp", Toast.LENGTH_SHORT).show()
+                                }
+                        ) {
+                            Text(
+                                text = "Phone IP: $localIp",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "(Copy)",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
                 Surface(
