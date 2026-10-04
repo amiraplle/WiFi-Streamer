@@ -41,7 +41,7 @@ class PacedAudioTransmitter(
         isRunning.set(true)
 
         transmitterThread = Thread({
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_MORE_FAVORABLE)
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
             transmissionLoop()
         }, "C3-PacedTransmitterThread").apply {
             isDaemon = true
@@ -87,7 +87,11 @@ class PacedAudioTransmitter(
             // Calculate chunk duration in nanoseconds
             val chunkDurationNs = (readCount.toLong() * 1_000_000_000L) / bytesPerSec
 
-            if (ratePacingEnabled) {
+            // If the buffer has accumulated more than 2 chunks (e.g. caused by an app switch or window animation),
+            // transmit immediately to refill the receiver's hardware buffer without delay!
+            val hasBacklog = ringBuffer.available > (chunkBuffer.size * 2)
+
+            if (ratePacingEnabled && !hasBacklog) {
                 val now = System.nanoTime()
 
                 // If scheduled time is in the future, sleep precisely until transmission window
@@ -96,14 +100,15 @@ class PacedAudioTransmitter(
                     LockSupport.parkNanos(waitNs)
                     nextScheduledTimeNs += chunkDurationNs
                 } else {
-                    // If we fell behind by more than 50ms (network or OS stall), RESET the clock!
-                    // CRITICAL: This prevents blasting a backlog burst to the ESP32-C3 when connection resumes.
                     if ((now - nextScheduledTimeNs) > maxAllowedDriftNs) {
                         nextScheduledTimeNs = now + chunkDurationNs
                     } else {
                         nextScheduledTimeNs += chunkDurationNs
                     }
                 }
+            } else if (hasBacklog) {
+                // Keep next scheduled time aligned with current real time
+                nextScheduledTimeNs = System.nanoTime()
             }
 
             // Transmit to TCP / HTTP transport
