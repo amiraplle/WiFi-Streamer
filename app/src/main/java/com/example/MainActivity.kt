@@ -9,6 +9,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -105,7 +108,9 @@ fun MainAppContent(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
+                containerColor = Color(0xFF0D0D12),
+                contentColor = Color(0xFF8E8E98),
+                tonalElevation = 0.dp,
                 modifier = Modifier.testTag("bottom_nav_bar")
             ) {
                 Screen.items.forEach { screen ->
@@ -124,15 +129,16 @@ fun MainAppContent(
                         icon = {
                             Icon(
                                 imageVector = screen.icon,
-                                contentDescription = screen.title
+                                contentDescription = screen.title,
+                                modifier = Modifier.size(22.dp)
                             )
                         },
                         alwaysShowLabel = false,
-                        label = { Text(screen.title) },
+                        label = null,
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                            selectedIconColor = Color.White,
+                            unselectedIconColor = Color(0xFF71717A),
+                            indicatorColor = Color(0xFF22222C)
                         ),
                         modifier = Modifier.testTag("nav_tab_${screen.route}")
                     )
