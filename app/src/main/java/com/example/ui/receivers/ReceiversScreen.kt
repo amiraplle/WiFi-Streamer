@@ -1,11 +1,16 @@
 package com.example.ui.receivers
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,26 +25,26 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Podcasts
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Router
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Wifi
-import androidx.compose.material.icons.outlined.StarOutline
-import com.example.data.network.NetworkUtils
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.BookmarkAdd
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Podcasts
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Router
+import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -51,17 +56,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.database.ReceiverEntity
 import com.example.data.discovery.DiscoveredReceiver
+import com.example.data.network.NetworkUtils
+import com.example.ui.components.StudioCard
+import com.example.ui.theme.DarkBackground
+import com.example.ui.theme.DarkCardBorder
+import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.StreamEmerald
+import com.example.ui.theme.TextPrimary
+import com.example.ui.theme.TextSecondary
 
 @Composable
 fun ReceiversScreen(
@@ -79,29 +93,40 @@ fun ReceiversScreen(
     var manualPort by remember { mutableStateOf("50005") }
     var manualName by remember { mutableStateOf("") }
 
+    val phoneIp = remember { NetworkUtils.getLocalIpAddress(context) ?: "Checking Wi-Fi..." }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .background(DarkBackground)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Network Discovery Header
+        // =========================================================================
+        // 1. NETWORK DISCOVERY HEADER
+        // =========================================================================
         item {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
                     Text(
-                        text = "Receiver Discovery",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        text = "RECEIVER DISCOVERY",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF8E8E98),
+                        letterSpacing = 0.8.sp,
+                        fontSize = 11.sp
                     )
                     Text(
                         text = "Searching for c3music.local and mDNS",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = TextSecondary,
+                        fontSize = 12.sp
                     )
                 }
                 IconButton(
@@ -112,15 +137,15 @@ fun ReceiversScreen(
                 ) {
                     if (isScanning) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
+                            color = Color.White,
                             strokeWidth = 2.dp
                         )
                     } else {
                         Icon(
-                            imageVector = Icons.Default.Refresh,
+                            imageVector = Icons.Outlined.Refresh,
                             contentDescription = "Scan for receivers",
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = Color.White
                         )
                     }
                 }
@@ -130,12 +155,7 @@ fun ReceiversScreen(
         // Discovered Devices List
         if (discovered.isEmpty()) {
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
+                StudioCard(modifier = Modifier.fillMaxWidth()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -143,9 +163,9 @@ fun ReceiversScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = if (isScanning) "Probing local Wi-Fi for c3music.local…" else "No receivers discovered. Tap refresh or add manually.",
+                            text = if (isScanning) "Probing local Wi-Fi for c3music.local…" else "No receivers discovered. Tap refresh or enter IP below.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = TextSecondary
                         )
                     }
                 }
@@ -163,152 +183,261 @@ fun ReceiversScreen(
             }
         }
 
-        // Phone Local Wi-Fi IP Status
+        // =========================================================================
+        // 2. PHONE WI-FI IP BANNER
+        // =========================================================================
         item {
-            val phoneIp = remember { NetworkUtils.getLocalIpAddress(context) ?: "Checking Wi-Fi..." }
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
+            StudioCard(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             Icon(
-                                imageVector = Icons.Default.Wifi,
+                                imageVector = Icons.Outlined.Wifi,
                                 contentDescription = "Wi-Fi",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "Your Phone's Wi-Fi IP",
-                                style = MaterialTheme.typography.labelMedium,
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = TextPrimary
                             )
                         }
+
                         Surface(
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            shape = RoundedCornerShape(8.dp)
+                            color = Color(0xFF1B1B24),
+                            border = BorderStroke(1.dp, Color(0xFF2C2C3A)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                    val clip = ClipData.newPlainText("Phone IP", phoneIp)
+                                    clipboard?.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Copied IP: $phoneIp", Toast.LENGTH_SHORT).show()
+                                }
                         ) {
-                            Text(
-                                text = phoneIp,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = phoneIp,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White,
+                                    fontSize = 12.sp
+                                )
+                                Icon(
+                                    imageVector = Icons.Outlined.ContentCopy,
+                                    contentDescription = "Copy",
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                            }
                         }
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
+
                     Text(
                         text = "Both devices must be on the same Wi-Fi. Enter your ESP32-C3 IP address below (e.g. 192.168.1.50) or c3music.local to push audio directly.",
                         style = MaterialTheme.typography.bodySmall,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp,
+                        color = TextSecondary
                     )
                 }
             }
         }
 
-        // Manual Host & Port Entry
+        // =========================================================================
+        // 3. DIRECT PUSH TO ESP32-C3 (CLEAN, SPACIOUS, NO SQUISHED BUTTONS)
+        // =========================================================================
         item {
             Text(
-                text = "Direct Push to ESP32-C3 (Manual IP)",
-                style = MaterialTheme.typography.titleMedium,
+                text = "DIRECT PUSH TO ESP32-C3",
+                style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 8.dp)
+                color = Color(0xFF8E8E98),
+                letterSpacing = 0.8.sp,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(start = 4.dp, top = 4.dp)
             )
         }
 
         item {
-            Card(
+            StudioCard(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("manual_connection_card"),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                shape = RoundedCornerShape(16.dp)
+                    .testTag("manual_connection_card")
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    OutlinedTextField(
-                        value = manualHost,
-                        onValueChange = { manualHost = it },
-                        label = { Text("Hostname or IP Address") },
-                        placeholder = { Text("e.g. c3music.local or 192.168.1.150") },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("manual_host_input"),
-                        shape = RoundedCornerShape(12.dp)
-                    )
+                    // Hostname / IP Input
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "HOSTNAME OR IP ADDRESS",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 10.sp,
+                            letterSpacing = 0.6.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF8E8E98)
+                        )
+                        OutlinedTextField(
+                            value = manualHost,
+                            onValueChange = { manualHost = it },
+                            placeholder = { Text("e.g. c3music.local or 192.168.1.150", fontSize = 13.sp) },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = Color(0xFF111116),
+                                unfocusedContainerColor = Color(0xFF111116),
+                                focusedBorderColor = Color(0xFF5E5E76),
+                                unfocusedBorderColor = Color(0xFF343444),
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("manual_host_input"),
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                    }
 
+                    // Port (TCP) and Nickname Row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        OutlinedTextField(
-                            value = manualPort,
-                            onValueChange = { manualPort = it },
-                            label = { Text("Port (TCP)") },
-                            placeholder = { Text("50005") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("manual_port_input"),
-                            shape = RoundedCornerShape(12.dp)
-                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "PORT (TCP)",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 10.sp,
+                                letterSpacing = 0.6.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF8E8E98)
+                            )
+                            OutlinedTextField(
+                                value = manualPort,
+                                onValueChange = { manualPort = it },
+                                placeholder = { Text("50005", fontSize = 13.sp) },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = Color(0xFF111116),
+                                    unfocusedContainerColor = Color(0xFF111116),
+                                    focusedBorderColor = Color(0xFF5E5E76),
+                                    unfocusedBorderColor = Color(0xFF343444),
+                                    focusedTextColor = TextPrimary,
+                                    unfocusedTextColor = TextPrimary
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("manual_port_input"),
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                        }
 
-                        OutlinedTextField(
-                            value = manualName,
-                            onValueChange = { manualName = it },
-                            label = { Text("Nickname (Optional)") },
-                            placeholder = { Text("Living Room C3") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1.5f),
-                            shape = RoundedCornerShape(12.dp)
-                        )
+                        Column(
+                            modifier = Modifier.weight(1.4f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "NICKNAME (OPTIONAL)",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 10.sp,
+                                letterSpacing = 0.6.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF8E8E98)
+                            )
+                            OutlinedTextField(
+                                value = manualName,
+                                onValueChange = { manualName = it },
+                                placeholder = { Text("Living Room C3", fontSize = 13.sp) },
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = Color(0xFF111116),
+                                    unfocusedContainerColor = Color(0xFF111116),
+                                    focusedBorderColor = Color(0xFF5E5E76),
+                                    unfocusedBorderColor = Color(0xFF343444),
+                                    focusedTextColor = TextPrimary,
+                                    unfocusedTextColor = TextPrimary
+                                ),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                        }
                     }
 
+                    // Ping Status Feedback
                     if (pingResult != null) {
                         Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF1B1B24),
+                            border = BorderStroke(1.dp, Color(0xFF2C2C3A)),
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
                                 text = pingResult ?: "",
                                 style = MaterialTheme.typography.bodySmall,
                                 fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(8.dp)
+                                fontSize = 11.sp,
+                                color = Color.White,
+                                modifier = Modifier.padding(10.dp)
                             )
                         }
                     }
 
+                    // Organized Action Buttons (Row 1: Two secondary actions | Row 2: Full-width Primary)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         OutlinedButton(
                             onClick = {
                                 val port = manualPort.toIntOrNull() ?: 50005
                                 viewModel.testConnection(manualHost.trim(), port)
                             },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, Color(0xFF383848)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = Color(0xFF16161D),
+                                contentColor = Color.White
+                            )
                         ) {
-                            Text("Test Ping")
+                            Icon(
+                                Icons.Outlined.Bolt,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Test Ping",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
                         }
 
                         OutlinedButton(
@@ -324,57 +453,99 @@ fun ReceiversScreen(
                                 Toast.makeText(context, "Saved to profiles", Toast.LENGTH_SHORT).show()
                                 manualName = ""
                             },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, Color(0xFF383848)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = Color(0xFF16161D),
+                                contentColor = Color.White
+                            )
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Save")
+                            Icon(
+                                Icons.Outlined.BookmarkAdd,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Save Profile",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
                         }
+                    }
 
-                        Button(
-                            onClick = {
-                                val port = manualPort.toIntOrNull() ?: 50005
-                                viewModel.selectReceiver(manualHost.trim(), port)
-                                Toast.makeText(context, "Selected ${manualHost.trim()}:$port", Toast.LENGTH_SHORT).show()
-                                onReceiverSelected()
-                            },
-                            modifier = Modifier.weight(1.2f),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                        ) {
-                            Text("Use Now", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
-                        }
+                    // Prominent Primary Button: Connect & Use Now
+                    Button(
+                        onClick = {
+                            val port = manualPort.toIntOrNull() ?: 50005
+                            viewModel.selectReceiver(manualHost.trim(), port)
+                            Toast.makeText(context, "Selected ${manualHost.trim()}:$port", Toast.LENGTH_SHORT).show()
+                            onReceiverSelected()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White,
+                            contentColor = Color.Black
+                        )
+                    ) {
+                        Icon(
+                            Icons.Outlined.CheckCircle,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Connect & Use Receiver",
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
                     }
                 }
             }
         }
 
-        // Saved Receiver Profiles
-        item {
-            Text(
-                text = "Saved Profiles",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 8.dp)
-            )
+        // =========================================================================
+        // 4. SAVED RECEIVER PROFILES
+        // =========================================================================
+        if (savedReceivers.isNotEmpty()) {
+            item {
+                Text(
+                    text = "SAVED PROFILES",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF8E8E98),
+                    letterSpacing = 0.8.sp,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(start = 4.dp, top = 4.dp)
+                )
+            }
+
+            items(savedReceivers, key = { it.id }) { saved ->
+                SavedReceiverCard(
+                    receiver = saved,
+                    onSelect = {
+                        viewModel.selectReceiver(saved.host, saved.tcpPort)
+                        Toast.makeText(context, "Selected ${saved.name}", Toast.LENGTH_SHORT).show()
+                        onReceiverSelected()
+                    },
+                    onSetDefault = { viewModel.setDefaultReceiver(saved) },
+                    onDelete = { viewModel.deleteReceiver(saved) }
+                )
+            }
         }
 
-        items(savedReceivers, key = { it.id }) { saved ->
-            SavedReceiverCard(
-                receiver = saved,
-                onSelect = {
-                    viewModel.selectReceiver(saved.host, saved.tcpPort)
-                    Toast.makeText(context, "Selected ${saved.name}", Toast.LENGTH_SHORT).show()
-                    onReceiverSelected()
-                },
-                onSetDefault = { viewModel.setDefaultReceiver(saved) },
-                onDelete = { viewModel.deleteReceiver(saved) }
-            )
-        }
-
         item {
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
@@ -384,12 +555,7 @@ fun DiscoveredReceiverCard(
     receiver: DiscoveredReceiver,
     onSelect: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-        shape = RoundedCornerShape(14.dp)
-    ) {
+    StudioCard(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -397,40 +563,56 @@ fun DiscoveredReceiverCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(38.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer),
+                        .background(Color(0xFF1E1E26)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Podcasts,
+                        imageVector = Icons.Outlined.Podcasts,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = receiver.name,
                         style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "${receiver.host}:${receiver.port}" + (receiver.pingMs?.let { " • ${it}ms" } ?: ""),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
 
+            Spacer(modifier = Modifier.width(8.dp))
+
             Button(
                 onClick = onSelect,
-                shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.White,
+                    contentColor = Color.Black
+                ),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
             ) {
                 Text("Select", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
@@ -445,19 +627,15 @@ fun SavedReceiverCard(
     onSetDefault: () -> Unit,
     onDelete: () -> Unit
 ) {
-    Card(
+    StudioCard(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(
-            1.dp,
-            if (receiver.isDefault) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-        ),
-        shape = RoundedCornerShape(14.dp)
+        borderGradientTop = if (receiver.isDefault) Color(0xFF6E6E85) else Color(0xFF383848),
+        borderGradientBottom = if (receiver.isDefault) Color(0xFF3E3E50) else Color(0xFF22222E)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -465,41 +643,62 @@ fun SavedReceiverCard(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.weight(1f)
             ) {
-                IconButton(onClick = onSetDefault) {
+                IconButton(
+                    onClick = onSetDefault,
+                    modifier = Modifier.size(34.dp)
+                ) {
                     Icon(
-                        imageVector = if (receiver.isDefault) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                        imageVector = if (receiver.isDefault) Icons.Outlined.Star else Icons.Outlined.StarBorder,
                         contentDescription = if (receiver.isDefault) "Default receiver" else "Set as default",
-                        tint = if (receiver.isDefault) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = if (receiver.isDefault) Color.White else Color(0xFF666675),
+                        modifier = Modifier.size(20.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(4.dp))
-                Column {
+                Spacer(modifier = Modifier.width(6.dp))
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = receiver.name,
                         style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "${receiver.host}:${receiver.tcpPort}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onDelete) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(36.dp)
+                ) {
                     Icon(
-                        Icons.Default.Delete,
+                        Icons.Outlined.Delete,
                         contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = Color(0xFF888898),
+                        modifier = Modifier.size(18.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(4.dp))
                 Button(
                     onClick = onSelect,
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.White,
+                        contentColor = Color.Black
+                    ),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                 ) {
                     Text("Connect", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }

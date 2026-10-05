@@ -211,6 +211,27 @@ class StreamingService : Service() {
             ACTION_RECONNECT -> {
                 reconnect()
             }
+            ACTION_TOGGLE_MUTE -> {
+                val prefsRepo = AppContainer.getPreferences(this)
+                val currentMute = prefsRepo.userPreferences.value.isMuted
+                prefsRepo.setMuted(!currentMute)
+                updateNotification()
+            }
+            ACTION_VOLUME_UP -> {
+                val prefsRepo = AppContainer.getPreferences(this)
+                val currentVol = prefsRepo.userPreferences.value.transmissionVolume
+                prefsRepo.updateVolume((currentVol + 5).coerceAtMost(100))
+                updateNotification()
+            }
+            ACTION_VOLUME_DOWN -> {
+                val prefsRepo = AppContainer.getPreferences(this)
+                val currentVol = prefsRepo.userPreferences.value.transmissionVolume
+                prefsRepo.updateVolume((currentVol - 5).coerceAtLeast(0))
+                updateNotification()
+            }
+            ACTION_CLOSE_APP -> {
+                closeAppAndService()
+            }
         }
         return START_NOT_STICKY
     }
@@ -573,6 +594,8 @@ class StreamingService : Service() {
 
     private fun updateNotification() {
         val t = _telemetry.value
+        val prefs = AppContainer.getPreferences(this).userPreferences.value
+
         val title = when (t.streamingState) {
             StreamingState.STREAMING -> "Streaming to ${t.targetHost}:${t.targetPort}"
             StreamingState.CONNECTING -> "Connecting to ${t.targetHost}…"
@@ -582,13 +605,21 @@ class StreamingService : Service() {
             StreamingState.IDLE -> "C3 Audio Streamer Ready"
         }
 
-        val content = "${t.format.displayName} • ${t.currentBitrateKbps} kbps • ${t.formattedDuration}"
+        val volStr = "Vol: ${prefs.transmissionVolume}%${if (prefs.isMuted) " [MUTED]" else ""}"
+        val content = if (t.streamingState == StreamingState.STREAMING) {
+            "$volStr • ${t.format.displayName} • ${t.currentBitrateKbps} kbps"
+        } else {
+            "$volStr • ${t.format.displayName}"
+        }
+
         val notification = buildNotification(title, content)
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
         manager.notify(NOTIFICATION_ID, notification)
     }
 
     private fun buildNotification(title: String, content: String): Notification {
+        val prefs = AppContainer.getPreferences(this).userPreferences.value
+
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
@@ -597,19 +628,38 @@ class StreamingService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val stopIntent = Intent(this, StreamingService::class.java).apply {
-            action = ACTION_STOP
-        }
-        val stopPendingIntent = PendingIntent.getService(
-            this, 1, stopIntent,
+        // 1. Mute / Unmute Action
+        val muteIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_TOGGLE_MUTE }
+        val mutePendingIntent = PendingIntent.getService(
+            this, 10, muteIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val reconnectIntent = Intent(this, StreamingService::class.java).apply {
-            action = ACTION_RECONNECT
-        }
-        val reconnectPendingIntent = PendingIntent.getService(
-            this, 2, reconnectIntent,
+        // 2. Volume Down (-5%)
+        val volDownIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_VOLUME_DOWN }
+        val volDownPendingIntent = PendingIntent.getService(
+            this, 11, volDownIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // 3. Volume Up (+5%)
+        val volUpIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_VOLUME_UP }
+        val volUpPendingIntent = PendingIntent.getService(
+            this, 12, volUpIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // 4. Stop Action
+        val stopIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_STOP }
+        val stopPendingIntent = PendingIntent.getService(
+            this, 13, stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // 5. Close App [X] (Poweramp-style complete exit)
+        val closeAppIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_CLOSE_APP }
+        val closeAppPendingIntent = PendingIntent.getService(
+            this, 14, closeAppIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -620,9 +670,42 @@ class StreamingService : Service() {
             .setContentIntent(openPendingIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.notification_stop), stopPendingIntent)
-            .addAction(android.R.drawable.ic_popup_sync, getString(R.string.notification_reconnect), reconnectPendingIntent)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .addAction(
+                if (prefs.isMuted) R.drawable.ic_notif_vol_up else R.drawable.ic_notif_mute,
+                if (prefs.isMuted) "Unmute" else "Mute",
+                mutePendingIntent
+            )
+            .addAction(R.drawable.ic_notif_vol_down, "Vol -", volDownPendingIntent)
+            .addAction(R.drawable.ic_notif_vol_up, "Vol +", volUpPendingIntent)
+            .addAction(R.drawable.ic_notif_stop, "Stop", stopPendingIntent)
+            .addAction(R.drawable.ic_notif_close, "Close", closeAppPendingIntent)
             .build()
+    }
+
+    private fun closeAppAndService() {
+        Log.i(TAG, "closeAppAndService: Poweramp-style exit requested from notification")
+        // 1. Stop streaming pipeline
+        stopStreaming()
+
+        // 2. Broadcast to finish MainActivity
+        try {
+            val exitIntent = Intent(BROADCAST_APP_EXIT).apply {
+                setPackage(packageName)
+            }
+            sendBroadcast(exitIntent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to broadcast exit intent: ${e.message}")
+        }
+
+        // 3. Remove foreground notification and stop service
+        try {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            manager.cancel(NOTIFICATION_ID)
+        } catch (_: Exception) {}
+
+        stopSelf()
     }
 
     fun stopStreaming() {
@@ -681,6 +764,11 @@ class StreamingService : Service() {
         const val ACTION_START = "com.example.service.action.START"
         const val ACTION_STOP = "com.example.service.action.STOP"
         const val ACTION_RECONNECT = "com.example.service.action.RECONNECT"
+        const val ACTION_TOGGLE_MUTE = "com.example.service.action.TOGGLE_MUTE"
+        const val ACTION_VOLUME_UP = "com.example.service.action.VOLUME_UP"
+        const val ACTION_VOLUME_DOWN = "com.example.service.action.VOLUME_DOWN"
+        const val ACTION_CLOSE_APP = "com.example.service.action.CLOSE_APP"
+        const val BROADCAST_APP_EXIT = "com.example.service.broadcast.APP_EXIT"
 
         var projectionResultCode: Int = 0
         var projectionIntentData: Intent? = null
