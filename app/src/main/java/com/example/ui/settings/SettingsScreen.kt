@@ -4,6 +4,14 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import com.example.domain.audio.AudioInterruptionEvent
+import com.example.domain.audio.AudioInterruptionLogger
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -479,6 +487,84 @@ fun SettingsScreen(
             }
         }
 
+        // Audio Interruption Diagnostics & Logs Section
+        SettingsSectionHeader(
+            title = "DIAGNOSTICS & LOGS",
+            subtitle = "Records audio interruptions, OS capture stalls & network drops"
+        )
+
+        var showLogsDialog by remember { mutableStateOf(false) }
+        val interruptionLogs by AudioInterruptionLogger.logsFlow.collectAsState()
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .clickable { showLogsDialog = true }
+                .testTag("audio_interruption_logs_card"),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Audio Interruption Logs",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            color = if (interruptionLogs.isEmpty()) StreamEmerald.copy(alpha = 0.15f) else ErrorCoral.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                text = if (interruptionLogs.isEmpty()) "0 Drops" else "${interruptionLogs.size} Event${if (interruptionLogs.size > 1) "s" else ""}",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (interruptionLogs.isEmpty()) StreamEmerald else ErrorCoral,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Touch to view logs explaining why any audio interruption occurred (OS stalls, route changes, buffer underruns).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(
+                        text = "Logs",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        }
+
+        if (showLogsDialog) {
+            AudioInterruptionLogsDialog(
+                logs = interruptionLogs,
+                onDismiss = { showLogsDialog = false },
+                onClear = { AudioInterruptionLogger.clear() }
+            )
+        }
+
         // About & License Section
         SettingsSectionHeader(title = "ABOUT & LICENSE", subtitle = "Application information and free software license")
 
@@ -506,7 +592,7 @@ fun SettingsScreen(
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
-                            text = "v1.0.0",
+                            text = "v1.5L",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
@@ -554,4 +640,161 @@ fun SettingsSectionHeader(title: String, subtitle: String) {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+}
+
+@Composable
+fun AudioInterruptionLogsDialog(
+    logs: List<AudioInterruptionEvent>,
+    onDismiss: () -> Unit,
+    onClear: () -> Unit
+) {
+    val context = LocalContext.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text(
+                        text = "Audio Interruption Logs",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "App v1.5L Diagnostic Tracker",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Surface(
+                    color = if (logs.isEmpty()) StreamEmerald.copy(alpha = 0.15f) else ErrorCoral.copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = "${logs.size} Event${if (logs.size != 1) "s" else ""}",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (logs.isEmpty()) StreamEmerald else ErrorCoral,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+        },
+        text = {
+            if (logs.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "No drops",
+                        tint = StreamEmerald,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "No Audio Interruptions Recorded",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Audio capture and transmission are streaming smoothly without OS stalls or buffer starvation.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(360.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(logs, key = { it.id }) { log ->
+                        val badgeColor = when (log.category) {
+                            "OS Capture Stall" -> MaterialTheme.colorScheme.error
+                            "AudioRecord Error" -> ErrorCoral
+                            "RingBuffer Starvation" -> ElectricCyan
+                            "Wi-Fi Network Drop" -> ErrorCoral
+                            else -> MaterialTheme.colorScheme.primary
+                        }
+
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Surface(
+                                        color = badgeColor.copy(alpha = 0.15f),
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(
+                                            text = log.category,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = badgeColor,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = log.formattedTime,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = log.description,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            Row {
+                if (logs.isNotEmpty()) {
+                    TextButton(
+                        onClick = {
+                            val allLogsText = logs.joinToString("\n\n") {
+                                "[${it.formattedTime}] [${it.category}] ${it.description}"
+                            }
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            clipboard?.setPrimaryClip(ClipData.newPlainText("Audio Interruption Logs", allLogsText))
+                            Toast.makeText(context, "Logs copied to clipboard!", Toast.LENGTH_SHORT).show()
+                        }
+                    ) {
+                        Text("Copy")
+                    }
+                    TextButton(onClick = onClear) {
+                        Text("Clear", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
+    )
 }

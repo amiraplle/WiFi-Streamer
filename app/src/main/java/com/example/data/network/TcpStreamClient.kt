@@ -93,6 +93,7 @@ class TcpStreamClient(
         } catch (e: IOException) {
             if (!isManuallyStopped.get()) {
                 val errMsg = "TCP network transmission error: ${e.message}"
+                com.example.domain.audio.AudioInterruptionLogger.log("Wi-Fi Network Drop", errMsg)
                 Log.w(TAG, errMsg)
                 closeSocket()
                 onStateChanged(StreamingState.DISCONNECTED, errMsg)

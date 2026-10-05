@@ -1,6 +1,7 @@
 package com.example.data.network
 
 import android.util.Log
+import com.example.domain.audio.AudioInterruptionLogger
 import com.example.domain.audio.AudioRingBuffer
 import com.example.model.AudioStreamFormat
 import java.util.concurrent.atomic.AtomicBoolean
@@ -27,6 +28,7 @@ class PacedAudioTransmitter(
 
     // Pre-allocated chunk buffer for transmission (e.g. 2048 bytes ~ 11.6ms @ 44.1kHz stereo)
     private val chunkBuffer = ByteArray(2048)
+    private val silenceChunk = ByteArray(2048)
 
     @Volatile
     var ratePacingEnabled: Boolean = true
@@ -68,17 +70,40 @@ class PacedAudioTransmitter(
 
         var nextScheduledTimeNs = System.nanoTime()
         val maxAllowedDriftNs = 50_000_000L // 50ms maximum allowable lag before resetting clock
+        var starvationStartTime = 0L
+        var isCurrentlyStarved = false
 
         while (isRunning.get()) {
             val available = ringBuffer.available
+            val readCount: Int
+            val isComfortSilence: Boolean
+
             if (available < chunkBuffer.size) {
-                // If not enough data in ring buffer, yield or sleep 2ms to prevent busy-waiting
-                LockSupport.parkNanos(2_000_000L)
-                continue
+                // If not enough data in ring buffer (e.g. during app switch, shade pull, or route update),
+                // transmit a zeroed comfort frame paced to the real-time audio clock.
+                // This keeps the TCP pipe flowing and prevents ESP32 DMA buffer starvation / RX_BUFFERING dropout.
+                readCount = chunkBuffer.size
+                isComfortSilence = true
+                if (!isCurrentlyStarved) {
+                    isCurrentlyStarved = true
+                    starvationStartTime = System.currentTimeMillis()
+                }
+            } else {
+                readCount = ringBuffer.read(chunkBuffer, 0, chunkBuffer.size)
+                isComfortSilence = false
+                if (isCurrentlyStarved) {
+                    isCurrentlyStarved = false
+                    val gapDuration = System.currentTimeMillis() - starvationStartTime
+                    if (gapDuration >= 20L) {
+                        AudioInterruptionLogger.log(
+                            category = "RingBuffer Starvation",
+                            description = "Audio capture paused for ${gapDuration}ms. Transmitter sent comfort silence frames to maintain receiver playback.",
+                            durationMs = gapDuration
+                        )
+                    }
+                }
             }
 
-            // Read fixed-size chunk from ring buffer
-            val readCount = ringBuffer.read(chunkBuffer, 0, chunkBuffer.size)
             if (readCount <= 0) {
                 LockSupport.parkNanos(2_000_000L)
                 continue
@@ -89,7 +114,7 @@ class PacedAudioTransmitter(
 
             // If the buffer has accumulated more than 2 chunks (e.g. caused by an app switch or window animation),
             // transmit immediately to refill the receiver's hardware buffer without delay!
-            val hasBacklog = ringBuffer.available > (chunkBuffer.size * 2)
+            val hasBacklog = !isComfortSilence && ringBuffer.available > (chunkBuffer.size * 2)
 
             if (ratePacingEnabled && !hasBacklog) {
                 val now = System.nanoTime()
@@ -112,7 +137,8 @@ class PacedAudioTransmitter(
             }
 
             // Transmit to TCP / HTTP transport
-            val sendSuccess = sendChunkToTransport(chunkBuffer, 0, readCount)
+            val bufferToSend = if (isComfortSilence) silenceChunk else chunkBuffer
+            val sendSuccess = sendChunkToTransport(bufferToSend, 0, readCount)
             if (!sendSuccess) {
                 // If transmission failed (socket dropped), sleep briefly to conserve CPU
                 LockSupport.parkNanos(10_000_000L) // 10ms
