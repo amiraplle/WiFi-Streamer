@@ -44,10 +44,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         prefsRepo.updateNetworkSettings(tcpPort, httpPort, timeoutMs, autoReconnect, maxRetries)
     }
 
-    fun updateAmoledDarkTheme(enabled: Boolean) {
-        prefsRepo.updateAmoledDarkTheme(enabled)
-    }
-
     fun updateRatePacing(enabled: Boolean) {
         prefsRepo.updateRatePacing(enabled)
     }

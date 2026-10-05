@@ -29,7 +29,6 @@ data class UserPreferences(
     val connectionTimeoutMs: Int = 5000,
     val ratePacing: Boolean = true,
     val keepAliveSilence: Boolean = true,
-    val amoledDarkTheme: Boolean = true,
     val dspEnabled: Boolean = false,
     val eqPresetName: String = "Flat",
     val eqBand0: Float = 0f,
@@ -85,7 +84,6 @@ class UserPreferencesRepository(context: Context) {
             connectionTimeoutMs = prefs.getInt("conn_timeout_ms", 5000),
             ratePacing = prefs.getBoolean("rate_pacing", true),
             keepAliveSilence = prefs.getBoolean("keep_alive_silence", true),
-            amoledDarkTheme = prefs.getBoolean("amoled_dark_theme", true),
             dspEnabled = prefs.getBoolean("dsp_enabled", false),
             eqPresetName = prefs.getString("eq_preset_name", "Flat") ?: "Flat",
             eqBand0 = prefs.getFloat("eq_band_0", 0f),
@@ -175,11 +173,6 @@ class UserPreferencesRepository(context: Context) {
             autoReconnect = autoReconnect,
             maxReconnectRetries = maxRetries
         )
-    }
-
-    fun updateAmoledDarkTheme(enabled: Boolean) {
-        prefs.edit().putBoolean("amoled_dark_theme", enabled).apply()
-        _userPreferences.value = _userPreferences.value.copy(amoledDarkTheme = enabled)
     }
 
     fun updateDspEnabled(enabled: Boolean) {

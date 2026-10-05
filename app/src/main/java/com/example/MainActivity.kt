@@ -9,9 +9,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -66,6 +63,8 @@ class MainActivity : ComponentActivity() {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 neededPermissions.add(Manifest.permission.POST_NOTIFICATIONS)
             }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
                 neededPermissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
             }
@@ -75,10 +74,8 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            val userPrefs by settingsViewModel.userPreferences.collectAsState()
-
-            C3StreamerTheme(darkTheme = userPrefs.amoledDarkTheme) {
-                MainAppContent(
+            C3StreamerTheme {
+                MainApp(
                     homeViewModel = homeViewModel,
                     receiversViewModel = receiversViewModel,
                     settingsViewModel = settingsViewModel
@@ -87,14 +84,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // Physical hardware volume button interception
+        val currentVol = homeViewModel.userPreferences.value.transmissionVolume
+        when (keyCode) {
+            KeyEvent.KEYCODE_VOLUME_UP -> {
+                homeViewModel.setVolume((currentVol + 5).coerceAtMost(100))
+                return true
+            }
+            KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                homeViewModel.setVolume((currentVol - 5).coerceAtLeast(0))
+                return true
+            }
+        }
+        return super.onKeyDown(keyCode, event)
     }
 }
 
 @Composable
-fun MainAppContent(
+fun MainApp(
     homeViewModel: HomeViewModel,
     receiversViewModel: ReceiversViewModel,
     settingsViewModel: SettingsViewModel
@@ -108,9 +116,7 @@ fun MainAppContent(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             NavigationBar(
-                containerColor = Color(0xFF0D0D12),
-                contentColor = Color(0xFF8E8E98),
-                tonalElevation = 0.dp,
+                containerColor = MaterialTheme.colorScheme.surface,
                 modifier = Modifier.testTag("bottom_nav_bar")
             ) {
                 Screen.items.forEach { screen ->
@@ -129,16 +135,15 @@ fun MainAppContent(
                         icon = {
                             Icon(
                                 imageVector = screen.icon,
-                                contentDescription = screen.title,
-                                modifier = Modifier.size(22.dp)
+                                contentDescription = screen.title
                             )
                         },
                         alwaysShowLabel = false,
-                        label = null,
+                        label = { Text(screen.title) },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color.White,
-                            unselectedIconColor = Color(0xFF71717A),
-                            indicatorColor = Color(0xFF22222C)
+                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer
                         ),
                         modifier = Modifier.testTag("nav_tab_${screen.route}")
                     )

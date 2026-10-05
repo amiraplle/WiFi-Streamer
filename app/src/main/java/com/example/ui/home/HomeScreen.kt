@@ -8,8 +8,15 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,22 +29,43 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ArrowDropDown
+import androidx.compose.material.icons.outlined.Audiotrack
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.CloudUpload
+import androidx.compose.material.icons.outlined.ElectricBolt
 import androidx.compose.material.icons.outlined.GraphicEq
-import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.PhoneAndroid
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Router
+import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Stop
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.VolumeOff
 import androidx.compose.material.icons.outlined.VolumeUp
+import androidx.compose.material.icons.outlined.Warning
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -47,34 +75,40 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.data.network.NetworkUtils
+import com.example.domain.audio.AudioDspEngine
 import com.example.model.AudioSourceType
+import com.example.model.CaptureStatus
 import com.example.model.ProtocolMode
 import com.example.model.StreamingState
+import com.example.ui.components.StudioCard
+import com.example.ui.components.StudioSwitch
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.shadow
 import com.example.ui.theme.DarkBackground
 import com.example.ui.theme.DarkCardBorder
 import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.ErrorCoral
-import com.example.ui.theme.MatteDarkInset
-import com.example.ui.theme.MatteDarkInsetBorder
-import com.example.ui.theme.MatteDarkPill
-import com.example.ui.theme.MatteDarkPillBorder
 import com.example.ui.theme.StreamEmerald
-import com.example.ui.theme.StreamEmeraldContainer
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
-import com.example.ui.theme.TextTertiary
+import com.example.ui.theme.WarningAmber
 
 @Composable
 fun HomeScreen(
@@ -85,7 +119,7 @@ fun HomeScreen(
     val context = LocalContext.current
     val telemetry by viewModel.telemetry.collectAsState()
     val prefs by viewModel.userPreferences.collectAsState()
-    val localIp = remember { NetworkUtils.getLocalIpAddress(context) ?: "Unavailable" }
+    val localIp = remember { NetworkUtils.getLocalIpAddress(context) ?: "Checking Wi-Fi..." }
 
     // MediaProjection permission launcher for Internal Audio
     val mediaProjectionLauncher = rememberLauncherForActivityResult(
@@ -121,479 +155,378 @@ fun HomeScreen(
     val isStreaming = telemetry.streamingState == StreamingState.STREAMING
     val isConnecting = telemetry.streamingState == StreamingState.CONNECTING || telemetry.streamingState == StreamingState.RECONNECTING
 
-    val startStreamingAction = {
-        val hasAudioPermission = ContextCompat.checkSelfPermission(
-            context,
-            android.Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
+    val statusColor by animateColorAsState(
+        targetValue = when (telemetry.streamingState) {
+            StreamingState.STREAMING -> StreamEmerald
+            StreamingState.CONNECTING, StreamingState.RECONNECTING -> WarningAmber
+            StreamingState.ERROR, StreamingState.DISCONNECTED -> ErrorCoral
+            StreamingState.IDLE -> MaterialTheme.colorScheme.primary
+        },
+        label = "statusColor"
+    )
 
-        if (!hasAudioPermission) {
-            recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-        } else if (prefs.audioSource == AudioSourceType.INTERNAL_AUDIO) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val mediaProjectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                mediaProjectionLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
-            } else {
-                Toast.makeText(context, "Internal audio requires Android 10+", Toast.LENGTH_SHORT).show()
-            }
-        } else {
-            viewModel.startStreaming(context, 0, null)
-        }
-    }
+    // Pulse animation when streaming
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = if (isStreaming) 1.12f else 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseScale"
+    )
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(DarkBackground)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // =========================================================================
-        // CARD 1: NOW PLAYING / PLAYER (Exact match to C3 interface screenshot)
+        // 1. ACTIVE RECEIVER TILE (Compact)
         // =========================================================================
-        Card(
+        StudioCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("now_playing_card"),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface),
-            border = BorderStroke(1.dp, DarkCardBorder),
-            shape = RoundedCornerShape(22.dp)
+                .clickable { onNavigateToReceivers() }
+                .testTag("receiver_status_card")
         ) {
-            Column(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Top Header Row: "Now Playing" + Status Pill
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Text(
-                        text = "Now Playing",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = TextSecondary,
-                        fontSize = 13.sp
-                    )
-
-                    // Compact Pill Badge
-                    val statusText = when {
-                        isStreaming -> "STREAMING"
-                        isConnecting -> "CONNECTING"
-                        telemetry.streamingState == StreamingState.ERROR -> "ERROR"
-                        else -> "STANDBY"
-                    }
-                    val statusBg = when {
-                        isStreaming -> StreamEmeraldContainer
-                        isConnecting -> MatteDarkPill
-                        telemetry.streamingState == StreamingState.ERROR -> Color(0xFF281416)
-                        else -> MatteDarkPill
-                    }
-                    val statusDotColor = when {
-                        isStreaming -> StreamEmerald
-                        isConnecting -> Color(0xFF94A3B8)
-                        telemetry.streamingState == StreamingState.ERROR -> ErrorCoral
-                        else -> Color(0xFF71717A)
-                    }
-                    val statusTextColor = when {
-                        isStreaming -> StreamEmerald
-                        isConnecting -> Color(0xFF94A3B8)
-                        telemetry.streamingState == StreamingState.ERROR -> ErrorCoral
-                        else -> Color(0xFF8E8E98)
-                    }
-
-                    Surface(
-                        color = statusBg,
-                        border = BorderStroke(1.dp, statusDotColor.copy(alpha = 0.25f)),
-                        shape = RoundedCornerShape(20.dp),
-                        modifier = Modifier.testTag("home_status_pill")
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF1E1E26)),
+                        contentAlignment = Alignment.Center
                     ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Router,
+                            contentDescription = "Receiver",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        val titleText = when (prefs.protocolMode) {
+                            ProtocolMode.RAW_TCP_SERVER -> "TCP Server :${prefs.targetPort}"
+                            ProtocolMode.RAW_TCP_CLIENT -> "${prefs.targetHost}:${prefs.targetPort}"
+                            ProtocolMode.HTTP_SERVER -> "HTTP Server :${prefs.httpPort}"
+                        }
+                        Text(
+                            text = titleText,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                                    val clip = android.content.ClipData.newPlainText("Phone IP", localIp)
+                                    clipboard?.setPrimaryClip(clip)
+                                    Toast.makeText(context, "IP copied: $localIp", Toast.LENGTH_SHORT).show()
+                                }
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(5.dp)
-                                    .clip(CircleShape)
-                                    .background(statusDotColor)
-                            )
                             Text(
-                                text = statusText,
+                                text = "IP: $localIp",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 11.sp,
+                                color = TextSecondary
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "(Copy)",
                                 style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
                                 fontSize = 10.sp,
-                                letterSpacing = 0.6.sp,
-                                color = statusTextColor
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
                 }
 
-                // Main Title & Subtitle
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = if (isStreaming) "Streaming" else if (isConnecting) "Connecting…" else "Ready",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        fontSize = 28.sp
-                    )
-                    Text(
-                        text = "${prefs.audioFormat.sampleRate} Hz · ${prefs.audioFormat.bitDepth}-bit · ${if (prefs.audioFormat.channelCount == 2) "Stereo" else "Mono"}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
-                        fontSize = 13.sp
-                    )
-                }
-
-                // Inset Buffer Capsule Bar
-                val bufferPercent = if (isStreaming) {
-                    ((telemetry.currentBitrateKbps * 128 / 8) % 100).coerceIn(25, 88)
-                } else 0
-                val bufferBytes = if (isStreaming) {
-                    (bufferPercent * 650).coerceIn(12000, 58000)
-                } else 0
-
+                // Sleek status pill badge
                 Surface(
-                    color = MatteDarkInset,
-                    border = BorderStroke(1.dp, MatteDarkInsetBorder),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().testTag("buffer_status_inset")
+                    color = statusColor.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, statusColor.copy(alpha = 0.35f)),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Buffer",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary,
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            text = if (isStreaming) "$bufferPercent% · $bufferBytes bytes" else "0% · 0 bytes",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary,
-                            fontSize = 13.sp
-                        )
-                    }
-                }
-
-                // Volume Block
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Volume",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextPrimary
-                        )
-                        Text(
-                            text = if (prefs.isMuted) "0%" else "${prefs.transmissionVolume}%",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Slider(
-                            value = if (prefs.isMuted) 0f else prefs.transmissionVolume.toFloat(),
-                            onValueChange = {
-                                if (prefs.isMuted) viewModel.toggleMute()
-                                viewModel.setVolume(it.toInt())
-                            },
-                            valueRange = 0f..100f,
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("volume_slider"),
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color.White,
-                                activeTrackColor = Color(0xFF4A4A58),
-                                inactiveTrackColor = Color(0xFF22222A)
-                            )
-                        )
-
-                        // Compact Unmute / Mute Pill Button
-                        Surface(
-                            color = MatteDarkPill,
-                            border = BorderStroke(1.dp, MatteDarkPillBorder),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable { viewModel.toggleMute() }
-                                .testTag("volume_mute_pill")
-                        ) {
-                            Text(
-                                text = if (prefs.isMuted) "Unmute" else "Mute",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = TextPrimary,
-                                fontSize = 12.sp,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                            )
-                        }
-                    }
-
                     Text(
-                        text = "Output level",
+                        text = telemetry.streamingState.name,
+                        color = statusColor,
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextTertiary,
-                        fontSize = 11.sp
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
-                }
-
-                // Action Pill Buttons Row: [ Start ] [ Stop ] [ Reconnect ]
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Start Button (High-visibility clean white pill)
-                    Surface(
-                        color = if (!isStreaming && !isConnecting) Color(0xFFF1F1F5) else MatteDarkPill,
-                        border = BorderStroke(1.dp, if (!isStreaming && !isConnecting) Color.White else MatteDarkPillBorder),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .clickable(enabled = !isStreaming && !isConnecting) {
-                                startStreamingAction()
-                            }
-                            .testTag("action_start_button")
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = "Start",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = if (!isStreaming && !isConnecting) Color(0xFF0B0B0E) else TextSecondary
-                            )
-                        }
-                    }
-
-                    // Stop Button
-                    Surface(
-                        color = MatteDarkPill,
-                        border = BorderStroke(1.dp, if (isStreaming) ErrorCoral.copy(alpha = 0.4f) else MatteDarkPillBorder),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .clickable(enabled = isStreaming || isConnecting) {
-                                viewModel.stopStreaming(context)
-                            }
-                            .testTag("action_stop_button")
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = "Stop",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 13.sp,
-                                color = if (isStreaming) ErrorCoral else TextSecondary
-                            )
-                        }
-                    }
-
-                    // Reconnect Button
-                    Surface(
-                        color = MatteDarkPill,
-                        border = BorderStroke(1.dp, MatteDarkPillBorder),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .clickable {
-                                viewModel.reconnect()
-                            }
-                            .testTag("action_reconnect_button")
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = "Reconnect",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 13.sp,
-                                color = TextPrimary
-                            )
-                        }
-                    }
                 }
             }
         }
 
         // =========================================================================
-        // CARD 2: STREAM DETAILS (Exact match to C3 interface screenshot)
+        // 2. TRANSMISSION CENTER (Compact Visualizer, Dropdown, Source & Actions)
         // =========================================================================
-        Card(
+        StudioCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("stream_details_card"),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface),
-            border = BorderStroke(1.dp, DarkCardBorder),
-            shape = RoundedCornerShape(22.dp)
+                .testTag("transmission_center_card")
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Header with minimal link icon
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                // Compact Glowing Visualizer Disc
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
+                        .scale(pulseScale)
+                        .clip(CircleShape)
+                        .background(statusColor.copy(alpha = if (isStreaming) 0.16f else 0.08f)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "Stream",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        fontSize = 16.sp
-                    )
-                    Icon(
-                        imageVector = Icons.Outlined.Link,
-                        contentDescription = "Stream Link",
-                        tint = TextSecondary,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(statusColor.copy(alpha = if (isStreaming) 0.30f else 0.14f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isStreaming) Icons.Outlined.GraphicEq else Icons.Outlined.Router,
+                            contentDescription = "Audio Stream Visualizer",
+                            tint = statusColor,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
                 }
 
-                HorizontalDivider(color = MatteDarkInsetBorder)
+                // Material 3 Dropdown for Audio Format & Rate Pacing
+                var formatDropdownExpanded by remember { mutableStateOf(false) }
+                val supportedFormats = viewModel.supportedFormatCapabilities
 
-                // Row: Transport
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "Transport", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 13.sp)
-                    Text(
-                        text = when (prefs.protocolMode) {
-                            ProtocolMode.RAW_TCP_SERVER -> "TCP PCM Server"
-                            ProtocolMode.RAW_TCP_CLIENT -> "TCP PCM"
-                            ProtocolMode.HTTP_SERVER -> "HTTP PCM"
+                    Box(modifier = Modifier.wrapContentSize(Alignment.Center)) {
+                        Surface(
+                            color = Color(0xFF1B1B24),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(
+                                1.dp,
+                                if (formatDropdownExpanded) Color.White else Color(0xFF2A2A36)
+                            ),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable(enabled = !isStreaming && !isConnecting) {
+                                    formatDropdownExpanded = true
+                                }
+                                .testTag("audio_format_dropdown_trigger")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Audiotrack,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = "${prefs.audioFormat.displayName} • ${prefs.audioFormat.bitrateKbps}k",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextPrimary,
+                                    fontSize = 12.sp
+                                )
+                                if (!isStreaming && !isConnecting) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.ArrowDropDown,
+                                        contentDescription = "Select Format",
+                                        tint = TextSecondary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = formatDropdownExpanded,
+                            onDismissRequest = { formatDropdownExpanded = false },
+                            modifier = Modifier
+                                .background(Color(0xFF141418))
+                                .border(BorderStroke(1.dp, Color(0xFF2C2C38)), RoundedCornerShape(14.dp))
+                                .clip(RoundedCornerShape(14.dp))
+                                .padding(6.dp)
+                                .testTag("audio_format_dropdown_menu")
+                        ) {
+                            supportedFormats.forEach { cap ->
+                                val isSelected = prefs.audioFormat == cap.format
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 2.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (isSelected) Color.White else Color.Transparent)
+                                        .clickable {
+                                            viewModel.updateAudioFormat(cap.format)
+                                            formatDropdownExpanded = false
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                                        .testTag("format_option_${cap.format.sampleRate}_${cap.format.channelCount}")
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = cap.format.displayName,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) Color.Black else Color.White
+                                        )
+                                        Text(
+                                            text = "${cap.format.bitrateKbps}k",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSelected) Color(0xFF333333) else TextSecondary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (prefs.ratePacing) {
+                        Surface(
+                            color = StreamEmerald.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, StreamEmerald.copy(alpha = 0.35f))
+                        ) {
+                            Box(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.ElectricBolt,
+                                    contentDescription = "Paced",
+                                    tint = StreamEmerald,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Audio Source Selector (Internal Audio vs Microphone)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val isInternal = prefs.audioSource == AudioSourceType.INTERNAL_AUDIO
+                    val isMic = prefs.audioSource == AudioSourceType.MICROPHONE
+
+                    // Internal Audio Button
+                    OutlinedButton(
+                        onClick = {
+                            if (!isStreaming) viewModel.selectAudioSource(AudioSourceType.INTERNAL_AUDIO)
                         },
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextPrimary,
-                        fontSize = 13.sp
-                    )
+                        enabled = !isStreaming && viewModel.isInternalAudioSupported,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .testTag("source_internal_button"),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (isInternal) Color(0xFF22222E) else Color.Transparent
+                        ),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isInternal) Color.White else Color(0xFF282834)
+                        )
+                    ) {
+                        Icon(
+                            Icons.Outlined.PhoneAndroid,
+                            contentDescription = "Internal Audio",
+                            tint = if (isInternal) Color.White else TextSecondary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Internal Audio",
+                            fontSize = 11.sp,
+                            fontWeight = if (isInternal) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isInternal) Color.White else TextSecondary
+                        )
+                    }
+
+                    // Microphone Button
+                    OutlinedButton(
+                        onClick = {
+                            if (!isStreaming) {
+                                recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                                viewModel.selectAudioSource(AudioSourceType.MICROPHONE)
+                            }
+                        },
+                        enabled = !isStreaming,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .testTag("source_mic_button"),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (isMic) Color(0xFF22222E) else Color.Transparent
+                        ),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isMic) Color.White else Color(0xFF282834)
+                        )
+                    ) {
+                        Icon(
+                            Icons.Outlined.Mic,
+                            contentDescription = "Microphone",
+                            tint = if (isMic) Color.White else TextSecondary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Microphone",
+                            fontSize = 11.sp,
+                            fontWeight = if (isMic) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isMic) Color.White else TextSecondary
+                        )
+                    }
                 }
 
-                // Row: Source / Target
-                val displayEndpoint = when (prefs.protocolMode) {
-                    ProtocolMode.RAW_TCP_SERVER -> "$localIp · ${prefs.targetPort}"
-                    ProtocolMode.RAW_TCP_CLIENT -> "${prefs.targetHost} · ${prefs.targetPort}"
-                    ProtocolMode.HTTP_SERVER -> "$localIp · ${prefs.httpPort}"
-                }
+                // Silence Phone Speaker Toggle (Compact row with crisp switch)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable { onNavigateToReceivers() },
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(text = "Target / Port", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 13.sp)
-                    Text(
-                        text = displayEndpoint,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextPrimary,
-                        fontSize = 13.sp
-                    )
-                }
-
-                // Row: Session
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(text = "Session", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 13.sp)
-                    Text(
-                        text = if (isStreaming) telemetry.formattedDuration else "00:00:00",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextPrimary,
-                        fontSize = 13.sp
-                    )
-                }
-
-                HorizontalDivider(color = MatteDarkInsetBorder)
-
-                // Compact Audio Source (Internal Audio vs Microphone)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (prefs.audioSource == AudioSourceType.INTERNAL_AUDIO) Icons.Outlined.PhoneAndroid else Icons.Outlined.Mic,
-                            contentDescription = "Source",
-                            tint = TextSecondary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = "Audio Source",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary,
-                            fontSize = 13.sp
-                        )
-                    }
-
-                    Surface(
-                        color = MatteDarkPill,
-                        border = BorderStroke(1.dp, MatteDarkPillBorder),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable(enabled = !isStreaming && !isConnecting) {
-                                val next = if (prefs.audioSource == AudioSourceType.INTERNAL_AUDIO) AudioSourceType.MICROPHONE else AudioSourceType.INTERNAL_AUDIO
-                                viewModel.selectAudioSource(next)
-                            }
-                    ) {
-                        Text(
-                            text = if (prefs.audioSource == AudioSourceType.INTERNAL_AUDIO) "Internal Audio" else "Microphone",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextPrimary,
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                        )
-                    }
-                }
-
-                // Silence Phone Speaker Toggle (Compact row)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF1A1A22))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -603,125 +536,575 @@ fun HomeScreen(
                     ) {
                         Icon(
                             imageVector = if (prefs.mutePhoneWhileStreaming) Icons.Outlined.VolumeOff else Icons.Outlined.VolumeUp,
-                            contentDescription = "Mute Phone",
-                            tint = TextSecondary,
-                            modifier = Modifier.size(16.dp)
+                            contentDescription = "Silence Phone",
+                            tint = if (prefs.mutePhoneWhileStreaming) Color.White else TextSecondary,
+                            modifier = Modifier.size(17.dp)
                         )
                         Text(
                             text = "Silence Phone Speaker",
                             style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary,
-                            fontSize = 13.sp
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary,
+                            fontSize = 12.sp
                         )
                     }
-
-                    Switch(
+                    StudioSwitch(
                         checked = prefs.mutePhoneWhileStreaming,
                         onCheckedChange = { viewModel.setMutePhoneWhileStreaming(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF383844),
-                            uncheckedThumbColor = Color(0xFF71717A),
-                            uncheckedTrackColor = Color(0xFF1E1E26)
-                        ),
                         modifier = Modifier.testTag("home_silence_phone_switch")
+                    )
+                }
+
+                // Action Buttons: Start / Stop / Reconnect (Pill-shaped, sleek)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (isStreaming || isConnecting) {
+                        Button(
+                            onClick = { viewModel.stopStreaming(context) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .testTag("stop_streaming_button"),
+                            colors = ButtonDefaults.buttonColors(containerColor = ErrorCoral),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Outlined.Stop, contentDescription = "Stop", tint = Color.Black, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Stop", fontWeight = FontWeight.Bold, color = Color.Black)
+                        }
+
+                        IconButton(
+                            onClick = { viewModel.reconnect() },
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF22222E))
+                                .testTag("reconnect_button")
+                        ) {
+                            Icon(
+                                Icons.Outlined.Refresh,
+                                contentDescription = "Reconnect",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    } else {
+                        Button(
+                            onClick = {
+                                val hasAudioPermission = ContextCompat.checkSelfPermission(
+                                    context,
+                                    android.Manifest.permission.RECORD_AUDIO
+                                ) == PackageManager.PERMISSION_GRANTED
+
+                                if (!hasAudioPermission) {
+                                    recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                                    return@Button
+                                }
+
+                                if (prefs.audioSource == AudioSourceType.INTERNAL_AUDIO) {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                        val mediaProjectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                                        mediaProjectionLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
+                                    } else {
+                                        Toast.makeText(context, "Internal audio requires Android 10+", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else {
+                                    viewModel.startStreaming(context, 0, null)
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .testTag("start_streaming_button"),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Outlined.PlayArrow, contentDescription = "Start", tint = Color.Black, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Start Streaming", fontWeight = FontWeight.Bold, color = Color.Black)
+                        }
+                    }
+                }
+            }
+        }
+
+        // =========================================================================
+        // 3. REMOTE RECEIVER VOLUME & INTERCEPTION (Compact)
+        // =========================================================================
+        StudioCard(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Receiver Volume",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = if (prefs.isMuted) "MUTED" else "${prefs.transmissionVolume}%",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (prefs.isMuted) ErrorCoral else Color.White
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { viewModel.toggleMute() },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("mute_toggle_button")
+                    ) {
+                        Icon(
+                            imageVector = if (prefs.isMuted) Icons.Outlined.VolumeOff else Icons.Outlined.VolumeUp,
+                            contentDescription = if (prefs.isMuted) "Unmute" else "Mute",
+                            tint = if (prefs.isMuted) ErrorCoral else TextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Slider(
+                        value = prefs.transmissionVolume.toFloat(),
+                        onValueChange = { viewModel.setVolume(it.toInt()) },
+                        valueRange = 0f..100f,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("volume_slider"),
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color.White,
+                            activeTrackColor = Color(0xFF4A4A58),
+                            inactiveTrackColor = Color(0xFF22222A)
+                        )
                     )
                 }
             }
         }
 
         // =========================================================================
-        // CARD 3: AUDIO HEALTH (Exact match to C3 interface screenshot)
+        // 4. IN-APP AUDIO DSP & EQUALIZER (Compact)
         // =========================================================================
-        Card(
+        StudioCard(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Tune,
+                            contentDescription = "DSP",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "Audio DSP & Equalizer",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                    }
+                    StudioSwitch(
+                        checked = prefs.dspEnabled,
+                        onCheckedChange = { viewModel.setDspEnabled(it) },
+                        modifier = Modifier.testTag("dsp_master_switch")
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Hardware Protection: Peak Limiter
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFF1A1A22),
+                    border = BorderStroke(1.dp, if (prefs.softLimiterEnabled) StreamEmerald.copy(alpha = 0.35f) else Color(0xFF262630))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(
+                                imageVector = Icons.Outlined.Security,
+                                contentDescription = "Protection",
+                                tint = if (prefs.softLimiterEnabled) StreamEmerald else TextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "Soft Peak Limiter (0 dBFS)",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary
+                            )
+                        }
+                        StudioSwitch(
+                            checked = prefs.softLimiterEnabled,
+                            onCheckedChange = { viewModel.setSoftLimiter(it) },
+                            modifier = Modifier.testTag("soft_limiter_switch")
+                        )
+                    }
+                }
+
+                if (prefs.dspEnabled) {
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Bass Boost
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Bass",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = TextSecondary,
+                            modifier = Modifier.width(38.dp)
+                        )
+                        Slider(
+                            value = prefs.bassBoostPercent.toFloat(),
+                            onValueChange = { viewModel.setBassBoost(it.toInt()) },
+                            valueRange = 0f..100f,
+                            modifier = Modifier.weight(1f).testTag("bass_boost_slider"),
+                            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color(0xFF4A4A58), inactiveTrackColor = Color(0xFF22222A))
+                        )
+                        Text(
+                            text = "${prefs.bassBoostPercent}%",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.width(32.dp)
+                        )
+                    }
+
+                    // Treble Clarity
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Treble",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = TextSecondary,
+                            modifier = Modifier.width(38.dp)
+                        )
+                        Slider(
+                            value = prefs.trebleClarityPercent.toFloat(),
+                            onValueChange = { viewModel.setTrebleClarity(it.toInt()) },
+                            valueRange = 0f..100f,
+                            modifier = Modifier.weight(1f).testTag("treble_clarity_slider"),
+                            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color(0xFF4A4A58), inactiveTrackColor = Color(0xFF22222A))
+                        )
+                        Text(
+                            text = "${prefs.trebleClarityPercent}%",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.width(32.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // 5-Band Presets
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        val presets = listOf(
+                            "Flat" to AudioDspEngine.PRESET_FLAT,
+                            "Bass" to AudioDspEngine.PRESET_BASS_BOOST,
+                            "Vocal" to AudioDspEngine.PRESET_VOCAL,
+                            "Acoustic" to AudioDspEngine.PRESET_ACOUSTIC,
+                            "Rock" to AudioDspEngine.PRESET_ROCK
+                        )
+                        presets.forEach { (name, gains) ->
+                            val isSelected = prefs.eqPresetName.equals(name, ignoreCase = true)
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { viewModel.setEqPreset(name, gains) },
+                                label = { Text(name, fontSize = 10.sp) },
+                                modifier = Modifier.testTag("eq_preset_$name"),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF252532),
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // 5 Bands Sliders
+                    val bandFrequencies = listOf("100", "300", "1k", "3.5k", "8k")
+                    val currentGains = listOf(prefs.eqBand0, prefs.eqBand1, prefs.eqBand2, prefs.eqBand3, prefs.eqBand4)
+
+                    bandFrequencies.forEachIndexed { index, label ->
+                        val gain = currentGains[index]
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium,
+                                color = TextSecondary,
+                                modifier = Modifier.width(32.dp)
+                            )
+                            Slider(
+                                value = gain,
+                                onValueChange = { viewModel.setEqBand(index, it) },
+                                valueRange = -12f..12f,
+                                modifier = Modifier.weight(1f).testTag("eq_band_$index"),
+                                colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color(0xFF4A4A58), inactiveTrackColor = Color(0xFF22222A))
+                            )
+                            Text(
+                                text = "${if (gain > 0) "+" else ""}${gain.toInt()}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                modifier = Modifier.width(28.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // =========================================================================
+        // 5. LIVE TELEMETRY (Wrapped inside one big StudioCard with header label)
+        // =========================================================================
+        StudioCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("audio_health_card"),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface),
-            border = BorderStroke(1.dp, DarkCardBorder),
-            shape = RoundedCornerShape(22.dp)
+                .testTag("live_telemetry_card")
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Header with waveform pulse icon
+                // Main Header Label
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        text = "Audio health",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        fontSize = 16.sp
-                    )
                     Icon(
-                        imageVector = Icons.Outlined.GraphicEq,
-                        contentDescription = "Audio Health",
-                        tint = TextSecondary,
+                        imageVector = Icons.Outlined.Speed,
+                        contentDescription = "Telemetry",
+                        tint = Color.White,
                         modifier = Modifier.size(18.dp)
                     )
-                }
-
-                HorizontalDivider(color = MatteDarkInsetBorder)
-
-                // Row: Bitrate
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(text = "Bitrate", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 13.sp)
                     Text(
-                        text = if (isStreaming) "${telemetry.currentBitrateKbps} kbps" else "0 kbps",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextPrimary,
-                        fontSize = 13.sp
+                        text = "Live Telemetry",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
                     )
                 }
 
-                // Row: Transmitted
+                // 2x2 Grid of Telemetry inside the big card
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(text = "Data Transmitted", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 13.sp)
-                    Text(
-                        text = telemetry.formattedDataTransmitted,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextPrimary,
-                        fontSize = 13.sp
+                    TelemetryTile(
+                        icon = Icons.Outlined.Speed,
+                        value = if (isStreaming) "${telemetry.currentBitrateKbps} kbps" else "0 kbps",
+                        modifier = Modifier.weight(1f)
+                    )
+                    TelemetryTile(
+                        icon = Icons.Outlined.CloudUpload,
+                        value = telemetry.formattedDataTransmitted,
+                        modifier = Modifier.weight(1f)
                     )
                 }
 
-                // Row: Stability
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(text = "Stability", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 13.sp)
-                    val stabilityText = if (telemetry.lastError != null) "Drop Detected" else "100% Stable"
-                    val stabilityColor = if (telemetry.lastError != null) ErrorCoral else StreamEmerald
-                    Text(
-                        text = stabilityText,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = stabilityColor,
-                        fontSize = 13.sp
+                    TelemetryTile(
+                        icon = Icons.Outlined.Timer,
+                        value = telemetry.formattedDuration,
+                        modifier = Modifier.weight(1f)
                     )
+                    TelemetryTile(
+                        icon = Icons.Outlined.GraphicEq,
+                        value = when (telemetry.captureStatus) {
+                            CaptureStatus.CAPTURING -> "PCM"
+                            CaptureStatus.SILENCE -> "Silence"
+                            CaptureStatus.INITIALIZING -> "Init"
+                            CaptureStatus.PAUSED -> "Paused"
+                            CaptureStatus.ERROR -> "Error"
+                            CaptureStatus.IDLE -> "Standby"
+                        },
+                        modifier = Modifier.weight(1f),
+                        iconTint = if (telemetry.captureStatus == CaptureStatus.CAPTURING) StreamEmerald else TextSecondary
+                    )
+                }
+
+                if (telemetry.reconnectCount > 0) {
+                    TelemetryTile(
+                        icon = Icons.Outlined.Refresh,
+                        value = "${telemetry.reconnectCount} retries",
+                        modifier = Modifier.fillMaxWidth(),
+                        iconTint = WarningAmber,
+                        valueColor = WarningAmber
+                    )
+                }
+
+                // Dynamic Status Banners
+                if (isStreaming && telemetry.streamingState == StreamingState.STREAMING) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("streaming_connected_banner"),
+                        color = StreamEmerald.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, StreamEmerald.copy(alpha = 0.35f)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Outlined.Check, contentDescription = "Connected", tint = StreamEmerald, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (telemetry.connectedClientAddress != null) {
+                                    "Connected (${telemetry.connectedClientAddress}) • Transmitting Audio"
+                                } else {
+                                    "Connected • Transmitting Audio"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = StreamEmerald,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                } else if (isStreaming && telemetry.streamingState == StreamingState.CONNECTING) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("streaming_connecting_banner"),
+                        color = Color(0xFF1E1E26),
+                        border = BorderStroke(1.dp, Color(0xFF333342)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Outlined.Router, contentDescription = "Listening", tint = WarningAmber, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Listening on port ${prefs.targetPort} • Waiting for connection...",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = WarningAmber,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                } else if (telemetry.lastError != null && telemetry.streamingState != StreamingState.STREAMING) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("streaming_error_banner"),
+                        color = ErrorCoral.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, ErrorCoral.copy(alpha = 0.4f)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Outlined.Warning, contentDescription = "Error", tint = ErrorCoral, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = telemetry.lastError ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = ErrorCoral,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
+    }
+}
+
+@Composable
+fun TelemetryTile(
+    icon: ImageVector,
+    value: String,
+    modifier: Modifier = Modifier,
+    iconTint: Color = Color.White,
+    valueColor: Color = TextPrimary
+) {
+    Card(
+        modifier = modifier
+            .shadow(
+                elevation = 4.dp,
+                shape = RoundedCornerShape(18.dp),
+                ambientColor = Color(0x30A0A0B8),
+                spotColor = Color(0x20FFFFFF)
+            ),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF131318)),
+        border = BorderStroke(
+            1.2.dp,
+            Brush.verticalGradient(
+                listOf(Color(0xFF3E3E50), Color(0xFF22222E))
+            )
+        ),
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(17.dp)
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                color = valueColor,
+                fontSize = 12.sp
+            )
+        }
     }
 }
