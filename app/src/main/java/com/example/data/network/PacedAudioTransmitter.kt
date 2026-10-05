@@ -36,6 +36,17 @@ class PacedAudioTransmitter(
     @Volatile
     var currentFormat: AudioStreamFormat = AudioStreamFormat.FORMAT_44K_16BIT_STEREO
 
+    // Target jitter buffer pre-roll in bytes (~150ms default = 26,460 bytes for 44.1kHz stereo)
+    @Volatile
+    var targetPreRollBytes: Int = 26460
+
+    fun setTargetLatencyPreset(preset: com.example.model.BufferLatencyPreset, format: AudioStreamFormat) {
+        val bytesPerSec = format.sampleRate.toLong() * format.frameSizeBytes
+        val calculated = ((bytesPerSec * preset.durationMs) / 1000).toInt()
+        targetPreRollBytes = calculated.coerceIn(chunkBuffer.size * 2, 64 * 1024)
+        Log.i(TAG, "Configured target jitter buffer pre-roll: $targetPreRollBytes bytes (${preset.durationMs}ms)")
+    }
+
     fun start(format: AudioStreamFormat) {
         if (isRunning.get()) return
 
@@ -50,7 +61,7 @@ class PacedAudioTransmitter(
             start()
         }
 
-        Log.i(TAG, "PacedAudioTransmitter started for ${format.displayName} (Pacing: $ratePacingEnabled)")
+        Log.i(TAG, "PacedAudioTransmitter started for ${format.displayName} (Pacing: $ratePacingEnabled, PreRoll: ${targetPreRollBytes}B)")
     }
 
     fun stop() {
@@ -72,34 +83,52 @@ class PacedAudioTransmitter(
         val maxAllowedDriftNs = 50_000_000L // 50ms maximum allowable lag before resetting clock
         var starvationStartTime = 0L
         var isCurrentlyStarved = false
+        var isPreRolling = true
 
         while (isRunning.get()) {
             val available = ringBuffer.available
             val readCount: Int
             val isComfortSilence: Boolean
 
-            if (available < chunkBuffer.size) {
-                // If not enough data in ring buffer (e.g. during app switch, shade pull, or route update),
-                // transmit a zeroed comfort frame paced to the real-time audio clock.
-                // This keeps the TCP pipe flowing and prevents ESP32 DMA buffer starvation / RX_BUFFERING dropout.
-                readCount = chunkBuffer.size
-                isComfortSilence = true
-                if (!isCurrentlyStarved) {
-                    isCurrentlyStarved = true
-                    starvationStartTime = System.currentTimeMillis()
+            if (isPreRolling) {
+                // While waiting for the initial jitter buffer reservoir to build:
+                if (available < targetPreRollBytes) {
+                    // Send paced comfort silence so the ESP32 receiver connection stays alive and clock runs
+                    readCount = chunkBuffer.size
+                    isComfortSilence = true
+                } else {
+                    // Jitter buffer reservoir reached! Seamlessly engage real playback
+                    isPreRolling = false
+                    nextScheduledTimeNs = System.nanoTime()
+                    readCount = ringBuffer.read(chunkBuffer, 0, chunkBuffer.size)
+                    isComfortSilence = false
+                    Log.i(TAG, "Jitter buffer filled ($available bytes). Real-time streaming engaged.")
                 }
             } else {
-                readCount = ringBuffer.read(chunkBuffer, 0, chunkBuffer.size)
-                isComfortSilence = false
-                if (isCurrentlyStarved) {
-                    isCurrentlyStarved = false
-                    val gapDuration = System.currentTimeMillis() - starvationStartTime
-                    if (gapDuration >= 20L) {
-                        AudioInterruptionLogger.log(
-                            category = "RingBuffer Starvation",
-                            description = "Audio capture paused for ${gapDuration}ms. Transmitter sent comfort silence frames to maintain receiver playback.",
-                            durationMs = gapDuration
-                        )
+                // Active playback mode: pull from the jitter buffer reservoir
+                if (available < chunkBuffer.size) {
+                    // Buffer ran completely dry (e.g. playback stopped or huge OS pause)
+                    isPreRolling = true
+                    readCount = chunkBuffer.size
+                    isComfortSilence = true
+                    if (!isCurrentlyStarved) {
+                        isCurrentlyStarved = true
+                        starvationStartTime = System.currentTimeMillis()
+                    }
+                } else {
+                    // Normal continuous playback: pulled smoothly from the pre-rolled buffer
+                    readCount = ringBuffer.read(chunkBuffer, 0, chunkBuffer.size)
+                    isComfortSilence = false
+                    if (isCurrentlyStarved) {
+                        isCurrentlyStarved = false
+                        val gapDuration = System.currentTimeMillis() - starvationStartTime
+                        if (gapDuration >= 20L) {
+                            AudioInterruptionLogger.log(
+                                category = "RingBuffer Starvation",
+                                description = "Audio capture paused for ${gapDuration}ms. Transmitter sent comfort silence frames to maintain receiver playback.",
+                                durationMs = gapDuration
+                            )
+                        }
                     }
                 }
             }
@@ -112,9 +141,9 @@ class PacedAudioTransmitter(
             // Calculate chunk duration in nanoseconds
             val chunkDurationNs = (readCount.toLong() * 1_000_000_000L) / bytesPerSec
 
-            // If the buffer has accumulated more than 2 chunks (e.g. caused by an app switch or window animation),
-            // transmit immediately to refill the receiver's hardware buffer without delay!
-            val hasBacklog = !isComfortSilence && ringBuffer.available > (chunkBuffer.size * 2)
+            // If the buffer has accumulated more than 2x the target reservoir (e.g. after a long UI gesture backlog),
+            // transmit immediately to drain the excess backlog down to the target buffer level!
+            val hasBacklog = !isComfortSilence && available > (targetPreRollBytes * 2)
 
             if (ratePacingEnabled && !hasBacklog) {
                 val now = System.nanoTime()

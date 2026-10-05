@@ -37,7 +37,7 @@ enum class ProtocolMode(val displayName: String) {
 }
 
 enum class BufferLatencyPreset(val durationMs: Int, val displayName: String, val description: String) {
-    LOW_LATENCY(10, "Low Latency (10ms)", "Minimal delay, best for fast 5GHz Wi-Fi"),
-    BALANCED(25, "Balanced (25ms)", "Optimal trade-off between latency and jitter immunity"),
-    SAFE(50, "Safe Buffer (50ms)", "Maximum dropout resistance on congested networks")
+    LOW_LATENCY(50, "Low Latency (50ms)", "Minimal delay, best for fast 5GHz Wi-Fi"),
+    BALANCED(150, "Balanced (150ms)", "Recommended: Absorbs notification shade & UI gestures"),
+    SAFE(300, "Rock-Solid (300ms)", "Maximum dropout immunity against app switching & OS pauses")
 }

@@ -326,7 +326,8 @@ class StreamingService : Service() {
         // Clear ring buffer for fresh stream
         ringBuffer.clear()
 
-        // Start Paced Transmitter
+        // Configure jitter buffer pre-roll and start paced transmitter
+        pacedTransmitter?.setTargetLatencyPreset(prefs.bufferPreset, prefs.audioFormat)
         pacedTransmitter?.start(prefs.audioFormat)
 
         // Start Audio Capture

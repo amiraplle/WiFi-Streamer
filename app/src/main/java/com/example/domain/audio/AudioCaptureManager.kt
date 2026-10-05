@@ -17,6 +17,7 @@ import com.example.model.CaptureStatus
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.locks.LockSupport
 
 class AudioCaptureManager(
     private val onCaptureStatusChanged: (CaptureStatus, String?) -> Unit,
@@ -117,7 +118,9 @@ class AudioCaptureManager(
                         .setChannelMask(channelConfig)
                         .build()
 
-                    val bufferBytes = (bufferSize * 4).coerceAtLeast(minHardwareBufferSize * 2)
+                    // Give AudioRecord OS driver a deep 500ms hardware buffer so Android never overflows during UI animations
+                    val targetDriverBufferBytes = (sampleRate * format.frameSizeBytes * 500) / 1000
+                    val bufferBytes = targetDriverBufferBytes.coerceAtLeast(minHardwareBufferSize * 4)
 
                     try {
                         AudioRecord.Builder()
@@ -137,7 +140,7 @@ class AudioCaptureManager(
                             AudioRecord.Builder()
                                 .setAudioPlaybackCaptureConfig(playbackConfig)
                                 .setAudioFormat(fallbackFormat)
-                                .setBufferSizeInBytes(fallbackMin * 2)
+                                .setBufferSizeInBytes((targetDriverBufferBytes).coerceAtLeast(fallbackMin * 4))
                                 .build()
                         } catch (e2: Exception) {
                             Log.w(TAG, "Secondary 16-bit build failed (${e2.message}), trying 48000Hz 16-bit hardware rate...")
@@ -150,7 +153,7 @@ class AudioCaptureManager(
                             AudioRecord.Builder()
                                 .setAudioPlaybackCaptureConfig(playbackConfig)
                                 .setAudioFormat(fallback48k)
-                                .setBufferSizeInBytes(min48k * 2)
+                                .setBufferSizeInBytes((48000 * format.frameSizeBytes / 2).coerceAtLeast(min48k * 4))
                                 .build()
                         }
                     }
@@ -161,12 +164,13 @@ class AudioCaptureManager(
                     return false
                 }
             } else {
+                val targetDriverBufferBytes = (sampleRate * format.frameSizeBytes * 500) / 1000
                 AudioRecord(
                     MediaRecorder.AudioSource.MIC,
                     sampleRate,
                     channelConfig,
                     audioEncoding,
-                    (bufferSize * 4).coerceAtLeast(minHardwareBufferSize * 2)
+                    targetDriverBufferBytes.coerceAtLeast(minHardwareBufferSize * 4)
                 )
             }
 
@@ -212,6 +216,8 @@ class AudioCaptureManager(
     private fun captureLoop() {
         var silentChunksCount = 0
         var isCurrentlySilent = false
+        var lastAudioTimestamp = System.currentTimeMillis()
+        var stallStartTime = 0L
 
         while (isRunning.get()) {
             val record = audioRecord ?: break
@@ -219,20 +225,23 @@ class AudioCaptureManager(
             // Get a reusable buffer from queue or allocate fallback if starved
             val buffer = bufferQueue.poll() ?: ByteArray(bufferSize)
 
-            val readStartTime = System.currentTimeMillis()
-            val bytesRead = record.read(buffer, 0, buffer.size)
-            val readDurationMs = System.currentTimeMillis() - readStartTime
-
-            // Log if OS delayed the read significantly (>40ms for a ~15ms chunk indicates OS preemption/stall)
-            if (readDurationMs > 40L) {
-                AudioInterruptionLogger.log(
-                    category = "OS Capture Stall",
-                    description = "Android OS paused audio capture delivery for ${readDurationMs}ms (System UI animation / App switch).",
-                    durationMs = readDurationMs
-                )
-            }
+            val bytesRead = record.read(buffer, 0, buffer.size, AudioRecord.READ_NON_BLOCKING)
 
             if (bytesRead > 0) {
+                val now = System.currentTimeMillis()
+                if (stallStartTime > 0L) {
+                    val stallDuration = now - stallStartTime
+                    if (stallDuration >= 80L) {
+                        AudioInterruptionLogger.log(
+                            category = "OS Capture Stall",
+                            description = "Android OS paused audio capture delivery for ${stallDuration}ms (System UI animation / App switch).",
+                            durationMs = stallDuration
+                        )
+                    }
+                    stallStartTime = 0L
+                }
+                lastAudioTimestamp = now
+
                 // Apply DSP (EQ, bass boost, treble clarity, soft limiter) and volume scaling/mute in-place
                 PcmAudioProcessor.processInPlace(
                     buffer = buffer,
@@ -271,7 +280,20 @@ class AudioCaptureManager(
 
                 // Return buffer to queue
                 bufferQueue.offer(buffer)
+
+                // Loop immediately to burst-drain any additional pending samples from the OS driver buffer
+                continue
+            } else if (bytesRead == 0) {
+                // No audio ready at this exact millisecond
+                bufferQueue.offer(buffer)
+                val now = System.currentTimeMillis()
+                if (stallStartTime == 0L && (now - lastAudioTimestamp) > 100L) {
+                    stallStartTime = lastAudioTimestamp
+                }
+                // Sleep 2ms with parkNanos to yield CPU without busy-spin
+                LockSupport.parkNanos(2_000_000L)
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && bytesRead == AudioRecord.ERROR_DEAD_OBJECT) {
+                bufferQueue.offer(buffer)
                 AudioInterruptionLogger.log(
                     category = "AudioRecord Error",
                     description = "ERROR_DEAD_OBJECT: Android audio server dropped capture track; recreating AudioRecord in background."
@@ -286,6 +308,7 @@ class AudioCaptureManager(
                     }
                 }
             } else if (bytesRead == AudioRecord.ERROR_INVALID_OPERATION) {
+                bufferQueue.offer(buffer)
                 AudioInterruptionLogger.log(
                     category = "AudioRecord Error",
                     description = "ERROR_INVALID_OPERATION: App switch or temporary device routing change detected by Android AudioPolicy."
@@ -298,6 +321,7 @@ class AudioCaptureManager(
                     break
                 }
             } else if (bytesRead == AudioRecord.ERROR_BAD_VALUE) {
+                bufferQueue.offer(buffer)
                 AudioInterruptionLogger.log(
                     category = "AudioRecord Error",
                     description = "ERROR_BAD_VALUE: AudioRecord bad parameters."
@@ -306,13 +330,7 @@ class AudioCaptureManager(
                 onCaptureStatusChanged(CaptureStatus.ERROR, "AudioRecord bad parameters")
                 break
             } else {
-                if (bytesRead == 0) {
-                    AudioInterruptionLogger.log(
-                        category = "OS Capture Stall",
-                        description = "AudioRecord returned 0 bytes (audio track stalled by system)."
-                    )
-                }
-                // Sleep tiny duration to prevent CPU spin if read returned 0
+                bufferQueue.offer(buffer)
                 try {
                     Thread.sleep(5)
                 } catch (_: InterruptedException) {
@@ -334,7 +352,8 @@ class AudioCaptureManager(
             val minHardwareBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioEncoding)
             if (minHardwareBufferSize <= 0) return false
 
-            val bufferBytes = (bufferSize * 4).coerceAtLeast(minHardwareBufferSize * 2)
+            val targetDriverBufferBytes = (sampleRate * format.frameSizeBytes * 500) / 1000
+            val bufferBytes = targetDriverBufferBytes.coerceAtLeast(minHardwareBufferSize * 4)
 
             audioRecord = if (sourceType == AudioSourceType.INTERNAL_AUDIO && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val mp = savedMediaProjection ?: return false
