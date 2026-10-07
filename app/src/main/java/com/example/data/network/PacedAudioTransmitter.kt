@@ -8,13 +8,8 @@ import java.util.concurrent.locks.LockSupport
 
 /**
  * Precision rate-regulated audio transmitter.
- * Pulls PCM audio from [AudioRingBuffer] and feeds the TCP socket or HTTP server at the exact
- * real-time playback clock, protecting the ESP32-C3 I2S DMA buffer from burst overflows and starvations.
- *
- * Designed for extreme battery efficiency:
- * - Uses zero heap allocations in the hot loop
- * - Employs LockSupport.parkNanos for nanosecond-level sleep with zero CPU spin
- * - Resets timing on network stalls to strictly prevent catch-up bursts
+ * Pulls PCM audio from [AudioRingBuffer] and feeds the transport socket at the exact
+ * real-time playback clock, protecting the receiver's buffer from burst overflows and starvations.
  */
 class PacedAudioTransmitter(
     private val ringBuffer: AudioRingBuffer,
@@ -79,7 +74,7 @@ class PacedAudioTransmitter(
         if (bytesPerSec <= 0L) bytesPerSec = 176400L
 
         var nextScheduledTimeNs = System.nanoTime()
-        val maxAllowedDriftNs = 10_000_000L // 10ms maximum allowable lag before resetting clock
+        val maxAllowedDriftNs = 10_000_000L // 10ms maximum allowable lag for tight UDP pacing
         var starvationStartTime = 0L
         var isCurrentlyStarved = false
         var isPreRolling = true
@@ -90,13 +85,10 @@ class PacedAudioTransmitter(
             val isComfortSilence: Boolean
 
             if (isPreRolling) {
-                // While waiting for the initial jitter buffer reservoir to build:
                 if (available < targetPreRollBytes) {
-                    // Send paced comfort silence so the ESP32 receiver connection stays alive and clock runs
                     readCount = chunkBuffer.size
                     isComfortSilence = true
                 } else {
-                    // Jitter buffer reservoir reached! Seamlessly engage real playback
                     isPreRolling = false
                     nextScheduledTimeNs = System.nanoTime()
                     readCount = ringBuffer.read(chunkBuffer, 0, chunkBuffer.size)
@@ -104,9 +96,7 @@ class PacedAudioTransmitter(
                     Log.i(TAG, "Jitter buffer filled ($available bytes). Real-time streaming engaged.")
                 }
             } else {
-                // Active playback mode: pull from the jitter buffer reservoir
                 if (available < chunkBuffer.size) {
-                    // Buffer ran completely dry (e.g. playback stopped or huge OS pause)
                     isPreRolling = true
                     readCount = chunkBuffer.size
                     isComfortSilence = true
@@ -115,7 +105,6 @@ class PacedAudioTransmitter(
                         starvationStartTime = System.currentTimeMillis()
                     }
                 } else {
-                    // Normal continuous playback: pulled smoothly from the pre-rolled buffer
                     readCount = ringBuffer.read(chunkBuffer, 0, chunkBuffer.size)
                     isComfortSilence = false
                     if (isCurrentlyStarved) {
@@ -137,14 +126,10 @@ class PacedAudioTransmitter(
                 continue
             }
 
-            // Calculate chunk duration in nanoseconds
             val chunkDurationNs = (readCount.toLong() * 1_000_000_000L) / bytesPerSec
-
-            // If the buffer has accumulated more than 2x the target reservoir (e.g. after a long UI gesture backlog),
-            // transmit immediately to drain the excess backlog down to the target buffer level!
             val hasBacklog = !isComfortSilence && available > (targetPreRollBytes * 2)
 
-                        if (ratePacingEnabled && !hasBacklog) {
+            if (ratePacingEnabled && !hasBacklog) {
                 val now = System.nanoTime()
 
                 if (nextScheduledTimeNs > now) {
@@ -152,22 +137,17 @@ class PacedAudioTransmitter(
                     LockSupport.parkNanos(waitNs)
                     nextScheduledTimeNs += chunkDurationNs
                 } else {
-                    // FIXED FOR UDP: If an app-switch animation stalls the thread, 
-                    // hard-reset the next window to right now. No packet bursting!
+                    // FIXED FOR UDP: Reset timing immediately on animation lag to block packet bursting
                     nextScheduledTimeNs = now + chunkDurationNs
                 }
-            }
             } else if (hasBacklog) {
-                // Keep next scheduled time aligned with current real time
                 nextScheduledTimeNs = System.nanoTime()
             }
 
-            // Transmit to TCP / HTTP transport
             val bufferToSend = if (isComfortSilence) silenceChunk else chunkBuffer
             val sendSuccess = sendChunkToTransport(bufferToSend, 0, readCount)
             if (!sendSuccess) {
-                // If transmission failed (socket dropped), sleep briefly to conserve CPU
-                LockSupport.parkNanos(10_000_000L) // 10ms
+                LockSupport.parkNanos(10_000_000L)
             }
         }
     }
