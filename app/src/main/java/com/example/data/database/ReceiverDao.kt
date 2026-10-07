@@ -17,6 +17,9 @@ interface ReceiverDao {
     @Query("SELECT * FROM receivers WHERE id = :id LIMIT 1")
     suspend fun getReceiverById(id: Long): ReceiverEntity?
 
+    @Query("SELECT * FROM receivers WHERE host = :host LIMIT 1")
+    suspend fun getReceiverByHost(host: String): ReceiverEntity?
+
     @Query("SELECT * FROM receivers WHERE isDefault = 1 LIMIT 1")
     suspend fun getDefaultReceiver(): ReceiverEntity?
 

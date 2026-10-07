@@ -200,6 +200,63 @@ class AudioDspEngine {
             process16Bit(buffer, length, channels, applyEq, applyLimiter)
         } else if (bitDepth == 24) {
             process24Bit(buffer, length, channels, applyEq, applyLimiter)
+        } else if (bitDepth == 32) {
+            process32Bit(buffer, length, channels, applyEq, applyLimiter)
+        }
+    }
+
+    private fun process32Bit(
+        buffer: ByteArray,
+        length: Int,
+        channels: Int,
+        applyEq: Boolean,
+        applyLimiter: Boolean
+    ) {
+        var i = 0
+        var channelIdx = 0
+
+        while (i + 3 < length) {
+            val b0 = buffer[i].toInt() and 0xFF
+            val b1 = buffer[i + 1].toInt() and 0xFF
+            val b2 = buffer[i + 2].toInt() and 0xFF
+            val b3 = buffer[i + 3].toInt()
+            val rawSample = (b3 shl 24) or (b2 shl 16) or (b1 shl 8) or b0
+            var sample = rawSample.toDouble()
+
+            if (applyEq) {
+                val hist = if (channelIdx == 0 || channels == 1) leftHistory else rightHistory
+                for (b in 0 until BAND_COUNT) {
+                    val coeffs = filterCoeffs[b]
+                    val b0C = coeffs[0].toDouble()
+                    val b1C = coeffs[1].toDouble()
+                    val b2C = coeffs[2].toDouble()
+                    val a1C = coeffs[3].toDouble()
+                    val a2C = coeffs[4].toDouble()
+
+                    val x1 = hist[b][0].toDouble()
+                    val x2 = hist[b][1].toDouble()
+                    val y1 = hist[b][2].toDouble()
+                    val y2 = hist[b][3].toDouble()
+
+                    val y0 = b0C * sample + b1C * x1 + b2C * x2 - a1C * y1 - a2C * y2
+
+                    hist[b][1] = x1.toFloat()
+                    hist[b][0] = sample.toFloat()
+                    hist[b][3] = y1.toFloat()
+                    hist[b][2] = y0.toFloat()
+
+                    sample = y0
+                }
+            }
+
+            val outSample = sample.coerceIn(-2147483648.0, 2147483647.0).toLong().toInt()
+            buffer[i] = (outSample and 0xFF).toByte()
+            buffer[i + 1] = ((outSample shr 8) and 0xFF).toByte()
+            buffer[i + 2] = ((outSample shr 16) and 0xFF).toByte()
+            buffer[i + 3] = ((outSample shr 24) and 0xFF).toByte()
+
+            i += 4
+            channelIdx = (channelIdx + 1) % channels
         }
     }
 

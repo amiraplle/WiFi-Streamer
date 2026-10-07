@@ -34,6 +34,7 @@ class AudioCaptureManager(
     // Reusable buffer pool to prevent GC allocation in the hot loop
     private val bufferQueue = ArrayBlockingQueue<ByteArray>(8)
     private var bufferSize = 0
+    private var actualHardwareEncoding: Int = AudioFormat.ENCODING_PCM_16BIT
 
     @Volatile
     var currentFormat: AudioStreamFormat = AudioStreamFormat.FORMAT_44K_16BIT_STEREO
@@ -71,7 +72,12 @@ class AudioCaptureManager(
         onCaptureStatusChanged(CaptureStatus.INITIALIZING, null)
 
         val channelConfig = format.androidChannelConfig
-        val audioEncoding = format.androidEncoding
+        val audioEncoding = if ((format.bitDepth == 32 || format.bitDepth == 24) && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            AudioFormat.ENCODING_PCM_16BIT
+        } else {
+            format.androidEncoding
+        }
+        actualHardwareEncoding = audioEncoding
         val sampleRate = format.sampleRate
 
         val minHardwareBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioEncoding)
@@ -228,6 +234,48 @@ class AudioCaptureManager(
             val bytesRead = record.read(buffer, 0, buffer.size, AudioRecord.READ_NON_BLOCKING)
 
             if (bytesRead > 0) {
+                val finalBuffer: ByteArray
+                val finalLength: Int
+                if (currentFormat.bitDepth == 32 && actualHardwareEncoding == AudioFormat.ENCODING_PCM_16BIT) {
+                    val sampleCount = bytesRead / 2
+                    val converted = ByteArray(sampleCount * 4)
+                    var srcIdx = 0
+                    var dstIdx = 0
+                    while (srcIdx + 1 < bytesRead) {
+                        val b0 = buffer[srcIdx]
+                        val b1 = buffer[srcIdx + 1]
+                        // 32-bit I2S slot: pad lower 16 bits with 0, upper 16 bits with sample
+                        converted[dstIdx] = 0
+                        converted[dstIdx + 1] = 0
+                        converted[dstIdx + 2] = b0
+                        converted[dstIdx + 3] = b1
+                        srcIdx += 2
+                        dstIdx += 4
+                    }
+                    finalBuffer = converted
+                    finalLength = dstIdx
+                } else if (currentFormat.bitDepth == 24 && actualHardwareEncoding == AudioFormat.ENCODING_PCM_16BIT) {
+                    val sampleCount = bytesRead / 2
+                    val converted = ByteArray(sampleCount * 3)
+                    var srcIdx = 0
+                    var dstIdx = 0
+                    while (srcIdx + 1 < bytesRead) {
+                        val b0 = buffer[srcIdx]
+                        val b1 = buffer[srcIdx + 1]
+                        // 24-bit packed: lower byte 0, upper 2 bytes from 16-bit
+                        converted[dstIdx] = 0
+                        converted[dstIdx + 1] = b0
+                        converted[dstIdx + 2] = b1
+                        srcIdx += 2
+                        dstIdx += 3
+                    }
+                    finalBuffer = converted
+                    finalLength = dstIdx
+                } else {
+                    finalBuffer = buffer
+                    finalLength = bytesRead
+                }
+
                 val now = System.currentTimeMillis()
                 if (stallStartTime > 0L) {
                     val stallDuration = now - stallStartTime
@@ -244,8 +292,8 @@ class AudioCaptureManager(
 
                 // Apply DSP (EQ, bass boost, treble clarity, soft limiter) and volume scaling/mute in-place
                 PcmAudioProcessor.processInPlace(
-                    buffer = buffer,
-                    length = bytesRead,
+                    buffer = finalBuffer,
+                    length = finalLength,
                     bitDepth = currentFormat.bitDepth,
                     volumePercent = volumePercent,
                     isMuted = isMuted,
@@ -255,8 +303,8 @@ class AudioCaptureManager(
 
                 // Detect silence
                 val chunkIsSilent = PcmAudioProcessor.isBufferSilent(
-                    buffer = buffer,
-                    length = bytesRead,
+                    buffer = finalBuffer,
+                    length = finalLength,
                     bitDepth = currentFormat.bitDepth
                 )
 
@@ -276,7 +324,7 @@ class AudioCaptureManager(
                 }
 
                 // Pass chunk to consumer (network streamer)
-                onAudioChunkReady(buffer, bytesRead, chunkIsSilent)
+                onAudioChunkReady(finalBuffer, finalLength, chunkIsSilent)
 
                 // Return buffer to queue
                 bufferQueue.offer(buffer)

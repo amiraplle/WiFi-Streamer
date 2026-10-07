@@ -21,12 +21,20 @@ object AudioDeviceCapabilityDetector {
         val channelConfig = format.androidChannelConfig
         val sampleRate = format.sampleRate
 
-        // 24-bit packed was officially added in Android 12 (API 31)
+        // 24-bit packed and 32-bit PCM support check
         if (format.bitDepth == 24 && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             return AudioFormatCapability(
                 format = format,
-                isSupported = false,
-                reason = "24-bit PCM requires Android 12 (API 31) or higher"
+                isSupported = true,
+                reason = "UDA1334A/PCM5102A 24-bit PCM (Hi-Fi software framing)"
+            )
+        }
+
+        if (format.bitDepth == 32 && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            return AudioFormatCapability(
+                format = format,
+                isSupported = true,
+                reason = "PCM5102A/UDA1334A 32-bit I2S slot (Hi-Fi software framing)"
             )
         }
 

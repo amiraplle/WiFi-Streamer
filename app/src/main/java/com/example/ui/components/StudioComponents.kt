@@ -1,16 +1,22 @@
 package com.example.ui.components
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,6 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +53,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.navigation.Screen
 
 /**
  * Reusable sleek studio card with 24.dp heavily rounded corners and a soft-glowing dual edge.
@@ -53,7 +61,7 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun StudioCard(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(24.dp),
+    shape: Shape = RoundedCornerShape(20.dp),
     containerColor: Color = Color(0xFF131318),
     borderGradientTop: Color = Color(0xFF3E3E50),
     borderGradientBottom: Color = Color(0xFF242430),
@@ -270,3 +278,91 @@ fun StudioSwitch(
         modifier = modifier
     )
 }
+
+/**
+ * Hardware-grade, ultra-sleek bottom navigation dock.
+ * Completely eliminates bulky M3 oval pills with a refined micro-accent indicator
+ * and tactile, low-profile studio aesthetic.
+ */
+@Composable
+fun StudioBottomNavigation(
+    screens: List<Screen>,
+    currentRoute: String?,
+    onScreenSelected: (Screen) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("bottom_nav_bar"),
+        color = Color(0xFF0C0C10),
+        border = BorderStroke(1.dp, Color(0xFF1E1E28))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .height(60.dp)
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            screens.forEach { screen ->
+                val isSelected = currentRoute == screen.route
+                val iconColor by animateColorAsState(
+                    targetValue = if (isSelected) Color.White else Color(0xFF6E6E82),
+                    label = "iconColor"
+                )
+                val textColor by animateColorAsState(
+                    targetValue = if (isSelected) Color.White else Color(0xFF6E6E82),
+                    label = "textColor"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = ripple(color = Color.White.copy(alpha = 0.12f))
+                        ) {
+                            onScreenSelected(screen)
+                        }
+                        .testTag("nav_tab_${screen.route}"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        // Top sleek micro accent bar
+                        Box(
+                            modifier = Modifier
+                                .width(20.dp)
+                                .height(2.5.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(if (isSelected) Color.White else Color.Transparent)
+                        )
+                        Spacer(modifier = Modifier.height(5.dp))
+                        Icon(
+                            imageVector = screen.icon,
+                            contentDescription = screen.title,
+                            tint = iconColor,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = screen.title.uppercase(),
+                            fontSize = 10.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            letterSpacing = 0.8.sp,
+                            color = textColor
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+

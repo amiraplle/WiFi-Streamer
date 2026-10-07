@@ -7,19 +7,33 @@ class ReceiverRepository(private val receiverDao: ReceiverDao) {
     val allReceivers: Flow<List<ReceiverEntity>> = receiverDao.getAllReceivers()
 
     suspend fun getDefaultReceiver(): ReceiverEntity? {
-        val def = receiverDao.getDefaultReceiver()
-        if (def != null) return def
-        // If empty, initialize with default C3 receiver
-        val defaultC3 = ReceiverEntity(
-            name = "ESP32-C3 Music Receiver",
-            host = "c3music.local",
-            tcpPort = 50005,
-            httpPort = 8080,
-            isDefault = true,
-            notes = "Standard mDNS hostname for C3_Music receiver"
-        )
-        val id = receiverDao.insertReceiver(defaultC3)
-        return defaultC3.copy(id = id)
+        val existingC3 = receiverDao.getReceiverByHost("c3music.local")
+        if (existingC3 == null) {
+            val defaultC3 = ReceiverEntity(
+                name = "ESP32-C3 Music Receiver",
+                host = "c3music.local",
+                tcpPort = 50005,
+                httpPort = 8080,
+                isDefault = true,
+                notes = "Standard mDNS hostname for ESP32-C3"
+            )
+            receiverDao.insertReceiver(defaultC3)
+        }
+
+        val existingS3 = receiverDao.getReceiverByHost("s3music.local")
+        if (existingS3 == null) {
+            val defaultS3 = ReceiverEntity(
+                name = "ESP32-S3 Music Receiver",
+                host = "s3music.local",
+                tcpPort = 50005,
+                httpPort = 8080,
+                isDefault = false,
+                notes = "Standard mDNS hostname for ESP32-S3"
+            )
+            receiverDao.insertReceiver(defaultS3)
+        }
+
+        return receiverDao.getDefaultReceiver()
     }
 
     suspend fun addReceiver(receiver: ReceiverEntity): Long {

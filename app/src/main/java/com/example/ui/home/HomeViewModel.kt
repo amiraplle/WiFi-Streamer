@@ -143,4 +143,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     fun updateAudioFormat(format: AudioStreamFormat) {
         prefsRepo.updateAudioFormat(format.sampleRate, format.bitDepth, format.channelCount)
     }
+
+    fun updateTarget(host: String, port: Int) {
+        prefsRepo.updateTarget(host, port)
+    }
 }

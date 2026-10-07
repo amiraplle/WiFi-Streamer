@@ -30,22 +30,21 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         prefsRepo.updateBufferPreset(preset)
     }
 
-    fun updateProtocolMode(mode: ProtocolMode) {
-        prefsRepo.updateProtocolMode(mode)
-    }
-
     fun updateNetworkSettings(
-        tcpPort: Int,
-        httpPort: Int,
+        udpPort: Int,
         timeoutMs: Int,
         autoReconnect: Boolean,
         maxRetries: Int
     ) {
-        prefsRepo.updateNetworkSettings(tcpPort, httpPort, timeoutMs, autoReconnect, maxRetries)
+        prefsRepo.updateNetworkSettings(udpPort, timeoutMs, autoReconnect, maxRetries)
     }
 
     fun updateRatePacing(enabled: Boolean) {
         prefsRepo.updateRatePacing(enabled)
+    }
+
+    fun updateWifiQos(enabled: Boolean) {
+        prefsRepo.updateWifiQos(enabled)
     }
 
     fun updateMutePhoneWhileStreaming(enabled: Boolean) {

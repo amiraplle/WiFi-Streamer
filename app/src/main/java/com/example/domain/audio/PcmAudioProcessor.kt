@@ -62,6 +62,22 @@ object PcmAudioProcessor {
                     i += 3
                 }
             }
+            32 -> {
+                var i = 0
+                while (i + 3 < length) {
+                    val b0 = buffer[i].toInt() and 0xFF
+                    val b1 = buffer[i + 1].toInt() and 0xFF
+                    val b2 = buffer[i + 2].toInt() and 0xFF
+                    val b3 = buffer[i + 3].toInt()
+                    val sample = (b3 shl 24) or (b2 shl 16) or (b1 shl 8) or b0
+                    val scaled = (sample * volumeFactor).toLong().coerceIn(-2147483648L, 2147483647L).toInt()
+                    buffer[i] = (scaled and 0xFF).toByte()
+                    buffer[i + 1] = ((scaled shr 8) and 0xFF).toByte()
+                    buffer[i + 2] = ((scaled shr 16) and 0xFF).toByte()
+                    buffer[i + 3] = ((scaled shr 24) and 0xFF).toByte()
+                    i += 4
+                }
+            }
         }
     }
 
@@ -102,6 +118,21 @@ object PcmAudioProcessor {
                         if (maxSample > (threshold shl 8)) return false
                     }
                     i += 3
+                }
+            }
+            32 -> {
+                var i = 0
+                while (i + 3 < length) {
+                    val b0 = buffer[i].toInt() and 0xFF
+                    val b1 = buffer[i + 1].toInt() and 0xFF
+                    val b2 = buffer[i + 2].toInt() and 0xFF
+                    val b3 = buffer[i + 3].toInt()
+                    val sample = Math.abs((b3 shl 24) or (b2 shl 16) or (b1 shl 8) or b0)
+                    if (sample > maxSample) {
+                        maxSample = sample
+                        if (maxSample > (threshold shl 16)) return false
+                    }
+                    i += 4
                 }
             }
         }

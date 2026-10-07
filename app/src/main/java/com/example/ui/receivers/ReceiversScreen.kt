@@ -123,7 +123,7 @@ fun ReceiversScreen(
                         fontSize = 11.sp
                     )
                     Text(
-                        text = "Searching for c3music.local and mDNS",
+                        text = "Searching for s3music.local, c3music.local and mDNS",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary,
                         fontSize = 12.sp
@@ -252,7 +252,7 @@ fun ReceiversScreen(
                     }
 
                     Text(
-                        text = "Both devices must be on the same Wi-Fi. Enter your ESP32-C3 IP address below (e.g. 192.168.1.50) or c3music.local to push audio directly.",
+                        text = "Both devices must be on the same Wi-Fi. Enter your ESP32-S3 or ESP32-C3 IP (e.g. s3music.local, c3music.local or 192.168.1.50) to stream single-target audio directly.",
                         style = MaterialTheme.typography.bodySmall,
                         fontSize = 11.sp,
                         lineHeight = 16.sp,
@@ -263,11 +263,11 @@ fun ReceiversScreen(
         }
 
         // =========================================================================
-        // 3. DIRECT PUSH TO ESP32-C3 (CLEAN, SPACIOUS, NO SQUISHED BUTTONS)
+        // 3. DIRECT PUSH TO ESP32-S3 / C3 (CLEAN, SPACIOUS, NO SQUISHED BUTTONS)
         // =========================================================================
         item {
             Text(
-                text = "DIRECT PUSH TO ESP32-C3",
+                text = "DIRECT PUSH (ESP32-S3 / ESP32-C3)",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF8E8E98),
@@ -287,6 +287,56 @@ fun ReceiversScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
+                    // Quick Preset Hardware Switcher
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val isS3 = manualHost == "s3music.local"
+                        val isC3 = manualHost == "c3music.local"
+
+                        Surface(
+                            color = if (isS3) Color.White else Color(0xFF1B1B24),
+                            border = BorderStroke(1.dp, if (isS3) Color.White else Color(0xFF2C2C3A)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    manualHost = "s3music.local"
+                                    if (manualName.isBlank() || manualName == "ESP32-C3") manualName = "ESP32-S3"
+                                }
+                        ) {
+                            Text(
+                                text = "ESP32-S3 (s3music.local)",
+                                color = if (isS3) Color.Black else Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = if (isS3) FontWeight.Bold else FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
+
+                        Surface(
+                            color = if (isC3) Color.White else Color(0xFF1B1B24),
+                            border = BorderStroke(1.dp, if (isC3) Color.White else Color(0xFF2C2C3A)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    manualHost = "c3music.local"
+                                    if (manualName.isBlank() || manualName == "ESP32-S3") manualName = "ESP32-C3"
+                                }
+                        ) {
+                            Text(
+                                text = "ESP32-C3 (c3music.local)",
+                                color = if (isC3) Color.Black else Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = if (isC3) FontWeight.Bold else FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+
                     // Hostname / IP Input
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
@@ -300,7 +350,7 @@ fun ReceiversScreen(
                         OutlinedTextField(
                             value = manualHost,
                             onValueChange = { manualHost = it },
-                            placeholder = { Text("e.g. c3music.local or 192.168.1.150", fontSize = 13.sp) },
+                            placeholder = { Text("e.g. s3music.local, c3music.local, 192.168.1.150", fontSize = 13.sp) },
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedContainerColor = Color(0xFF111116),
@@ -317,7 +367,7 @@ fun ReceiversScreen(
                         )
                     }
 
-                    // Port (TCP) and Nickname Row
+                    // Port (UDP) and Nickname Row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -327,7 +377,7 @@ fun ReceiversScreen(
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                text = "PORT (TCP)",
+                                text = "PORT (UDP)",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontSize = 10.sp,
                                 letterSpacing = 0.6.sp,

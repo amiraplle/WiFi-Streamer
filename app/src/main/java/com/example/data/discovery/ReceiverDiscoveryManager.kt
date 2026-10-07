@@ -51,13 +51,14 @@ class ReceiverDiscoveryManager(private val context: Context) {
         acquireMulticastLock()
 
         scanJob = scope.launch {
-            // 1. Proactively probe default mDNS hostname c3music.local
-            launch { probeC3MusicLocal() }
+            // 1. Proactively probe default mDNS hostnames c3music.local & s3music.local
+            launch { probeDirectMdns("c3music.local", "ESP32-C3") }
+            launch { probeDirectMdns("s3music.local", "ESP32-S3") }
 
             // 2. Start Android NSD discovery for mDNS advertisements
             startNsdDiscovery()
 
-            // 3. Actively scan the local /24 subnet for any ESP32-C3 listening on port 50005
+            // 3. Actively scan the local /24 subnet for any ESP32 listening on port 50005
             launch { scanSubnetForC3Receivers() }
 
             delay(timeoutMs)
@@ -65,11 +66,11 @@ class ReceiverDiscoveryManager(private val context: Context) {
         }
     }
 
-    private suspend fun probeC3MusicLocal() = withContext(Dispatchers.IO) {
+    private suspend fun probeDirectMdns(hostname: String, deviceLabel: String) = withContext(Dispatchers.IO) {
         try {
             val startTime = System.currentTimeMillis()
-            val address = InetAddress.getByName("c3music.local")
-            val ip = address.hostAddress ?: "c3music.local"
+            val address = InetAddress.getByName(hostname)
+            val ip = address.hostAddress ?: hostname
 
             // Test TCP port 50005
             var reachable = false
@@ -82,17 +83,17 @@ class ReceiverDiscoveryManager(private val context: Context) {
                 reachable = true
             } catch (_: Exception) {}
 
-            val c3 = DiscoveredReceiver(
-                name = if (reachable) "ESP32-C3 (Online)" else "c3music.local (Resolved)",
+            val receiver = DiscoveredReceiver(
+                name = if (reachable) "$deviceLabel (Online)" else "$hostname (Resolved)",
                 host = ip,
                 port = 50005,
                 isC3Default = true,
                 pingMs = pingTime
             )
 
-            addDiscoveredReceiver(c3)
+            addDiscoveredReceiver(receiver)
         } catch (e: Exception) {
-            Log.d(TAG, "c3music.local not resolved via mDNS: ${e.message}")
+            Log.d(TAG, "$hostname not resolved via mDNS: ${e.message}")
         }
     }
 

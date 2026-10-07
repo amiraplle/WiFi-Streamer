@@ -14,8 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 data class UserPreferences(
     val targetHost: String = "c3music.local",
     val targetPort: Int = 50005,
-    val httpPort: Int = 8080,
-    val protocolMode: ProtocolMode = ProtocolMode.RAW_TCP_SERVER,
+    val protocolMode: ProtocolMode = ProtocolMode.RAW_UDP,
     val audioSource: AudioSourceType = AudioSourceType.INTERNAL_AUDIO,
     val sampleRate: Int = 44100,
     val bitDepth: Int = 16,
@@ -39,7 +38,8 @@ data class UserPreferences(
     val softLimiterEnabled: Boolean = true,
     val bassBoostPercent: Int = 0,
     val trebleClarityPercent: Int = 0,
-    val mutePhoneWhileStreaming: Boolean = false
+    val mutePhoneWhileStreaming: Boolean = false,
+    val wifiQosEnabled: Boolean = true
 ) {
     val audioFormat: AudioStreamFormat
         get() = AudioStreamFormat(sampleRate, bitDepth, channelCount)
@@ -59,11 +59,10 @@ class UserPreferencesRepository(context: Context) {
         return UserPreferences(
             targetHost = prefs.getString("target_host", "c3music.local") ?: "c3music.local",
             targetPort = prefs.getInt("target_port", 50005),
-            httpPort = prefs.getInt("http_port", 8080),
             protocolMode = try {
-                ProtocolMode.valueOf(prefs.getString("protocol_mode", ProtocolMode.RAW_TCP_SERVER.name) ?: ProtocolMode.RAW_TCP_SERVER.name)
+                ProtocolMode.valueOf(prefs.getString("protocol_mode", ProtocolMode.RAW_UDP.name) ?: ProtocolMode.RAW_UDP.name)
             } catch (_: Exception) {
-                ProtocolMode.RAW_TCP_SERVER
+                ProtocolMode.RAW_UDP
             },
             audioSource = AudioSourceType.valueOf(
                 prefs.getString("audio_source", AudioSourceType.INTERNAL_AUDIO.name) ?: AudioSourceType.INTERNAL_AUDIO.name
@@ -94,7 +93,8 @@ class UserPreferencesRepository(context: Context) {
             softLimiterEnabled = prefs.getBoolean("soft_limiter_enabled", true),
             bassBoostPercent = prefs.getInt("bass_boost_percent", 0),
             trebleClarityPercent = prefs.getInt("treble_clarity_percent", 0),
-            mutePhoneWhileStreaming = prefs.getBoolean("mute_phone_while_streaming", false)
+            mutePhoneWhileStreaming = prefs.getBoolean("mute_phone_while_streaming", false),
+            wifiQosEnabled = prefs.getBoolean("wifi_qos_enabled", true)
         )
     }
 
@@ -152,23 +152,25 @@ class UserPreferencesRepository(context: Context) {
         _userPreferences.value = _userPreferences.value.copy(ratePacing = enabled)
     }
 
+    fun updateWifiQos(enabled: Boolean) {
+        prefs.edit().putBoolean("wifi_qos_enabled", enabled).apply()
+        _userPreferences.value = _userPreferences.value.copy(wifiQosEnabled = enabled)
+    }
+
     fun updateNetworkSettings(
-        tcpPort: Int,
-        httpPort: Int,
+        udpPort: Int,
         timeoutMs: Int,
         autoReconnect: Boolean,
         maxRetries: Int
     ) {
         prefs.edit()
-            .putInt("target_port", tcpPort)
-            .putInt("http_port", httpPort)
+            .putInt("target_port", udpPort)
             .putInt("conn_timeout_ms", timeoutMs)
             .putBoolean("auto_reconnect", autoReconnect)
             .putInt("max_reconnect_retries", maxRetries)
             .apply()
         _userPreferences.value = _userPreferences.value.copy(
-            targetPort = tcpPort,
-            httpPort = httpPort,
+            targetPort = udpPort,
             connectionTimeoutMs = timeoutMs,
             autoReconnect = autoReconnect,
             maxReconnectRetries = maxRetries

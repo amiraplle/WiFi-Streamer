@@ -191,90 +191,169 @@ fun HomeScreen(
         StudioCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onNavigateToReceivers() }
                 .testTag("receiver_status_card")
         ) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Box(
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF1E1E26)),
-                        contentAlignment = Alignment.Center
+                            .weight(1f)
+                            .clickable { onNavigateToReceivers() }
                     ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Router,
-                            contentDescription = "Receiver",
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        val titleText = when (prefs.protocolMode) {
-                            ProtocolMode.RAW_TCP_SERVER -> "TCP Server :${prefs.targetPort}"
-                            ProtocolMode.RAW_TCP_CLIENT -> "${prefs.targetHost}:${prefs.targetPort}"
-                            ProtocolMode.HTTP_SERVER -> "HTTP Server :${prefs.httpPort}"
-                        }
-                        Text(
-                            text = titleText,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
+                        Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .clickable {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-                                    val clip = android.content.ClipData.newPlainText("Phone IP", localIp)
-                                    clipboard?.setPrimaryClip(clip)
-                                    Toast.makeText(context, "IP copied: $localIp", Toast.LENGTH_SHORT).show()
-                                }
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF1E1E26)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = "IP: $localIp",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 11.sp,
-                                color = TextSecondary
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "(Copy)",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.primary
+                            Icon(
+                                imageVector = Icons.Outlined.Router,
+                                contentDescription = "Receiver",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            val deviceName = when {
+                                prefs.targetHost.contains("s3", ignoreCase = true) -> "ESP32-S3"
+                                prefs.targetHost.contains("c3", ignoreCase = true) -> "ESP32-C3"
+                                else -> "ESP32 Target"
+                            }
+                            val titleText = "$deviceName UDP (${prefs.targetHost}:${prefs.targetPort})"
+                            Text(
+                                text = titleText,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                                        val clip = android.content.ClipData.newPlainText("Phone IP", localIp)
+                                        clipboard?.setPrimaryClip(clip)
+                                        Toast.makeText(context, "IP copied: $localIp", Toast.LENGTH_SHORT).show()
+                                    }
+                            ) {
+                                Text(
+                                    text = "IP: $localIp",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "(Copy)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 10.sp,
+                                    color = Color(0xFFA0A0B8)
+                                )
+                            }
+                        }
+                    }
+
+                    // Sleek status pill badge
+                    Surface(
+                        color = statusColor.copy(alpha = 0.15f),
+                        border = BorderStroke(1.dp, statusColor.copy(alpha = 0.35f)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = telemetry.streamingState.name,
+                            color = statusColor,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
                     }
                 }
 
-                // Sleek status pill badge
-                Surface(
-                    color = statusColor.copy(alpha = 0.15f),
-                    border = BorderStroke(1.dp, statusColor.copy(alpha = 0.35f)),
-                    shape = RoundedCornerShape(12.dp)
+                // Quick Single-Stream Hardware Switcher: ESP32-S3 vs ESP32-C3
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = telemetry.streamingState.name,
-                        color = statusColor,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 10.sp,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
+                    val isS3Active = prefs.targetHost == "s3music.local"
+                    val isC3Active = prefs.targetHost == "c3music.local"
+
+                    Surface(
+                        color = if (isS3Active) Color.White else Color(0xFF1B1B24),
+                        border = BorderStroke(1.dp, if (isS3Active) Color.White else Color(0xFF2C2C3A)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable(enabled = !isStreaming) {
+                                viewModel.updateTarget("s3music.local", 50005)
+                                Toast.makeText(context, "Target set to ESP32-S3 (s3music.local)", Toast.LENGTH_SHORT).show()
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isS3Active) Color.Black else Color(0xFF6E6E82))
+                            )
+                            Text(
+                                text = "ESP32-S3",
+                                color = if (isS3Active) Color.Black else Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = if (isS3Active) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    Surface(
+                        color = if (isC3Active) Color.White else Color(0xFF1B1B24),
+                        border = BorderStroke(1.dp, if (isC3Active) Color.White else Color(0xFF2C2C3A)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable(enabled = !isStreaming) {
+                                viewModel.updateTarget("c3music.local", 50005)
+                                Toast.makeText(context, "Target set to ESP32-C3 (c3music.local)", Toast.LENGTH_SHORT).show()
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isC3Active) Color.Black else Color(0xFF6E6E82))
+                            )
+                            Text(
+                                text = "ESP32-C3",
+                                color = if (isC3Active) Color.Black else Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = if (isC3Active) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -401,12 +480,21 @@ fun HomeScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(
-                                            text = cap.format.displayName,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (isSelected) Color.Black else Color.White
-                                        )
+                                        Column {
+                                            Text(
+                                                text = cap.format.displayName,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isSelected) Color.Black else Color.White
+                                            )
+                                            Text(
+                                                text = cap.format.dacCompatibility,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Normal,
+                                                color = if (isSelected) Color(0xFF444444) else TextSecondary
+                                            )
+                                        }
                                         Text(
                                             text = "${cap.format.bitrateKbps}k",
                                             style = MaterialTheme.typography.labelSmall,
@@ -1073,7 +1161,7 @@ fun TelemetryTile(
         modifier = modifier
             .shadow(
                 elevation = 4.dp,
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(16.dp),
                 ambientColor = Color(0x30A0A0B8),
                 spotColor = Color(0x20FFFFFF)
             ),
@@ -1084,7 +1172,7 @@ fun TelemetryTile(
                 listOf(Color(0xFF3E3E50), Color(0xFF22222E))
             )
         ),
-        shape = RoundedCornerShape(18.dp)
+        shape = RoundedCornerShape(16.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),

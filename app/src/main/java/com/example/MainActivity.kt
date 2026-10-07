@@ -37,6 +37,7 @@ import android.os.Build
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.example.service.StreamingService
+import com.example.ui.components.StudioBottomNavigation
 import com.example.ui.home.HomeScreen
 import com.example.ui.home.HomeViewModel
 import com.example.ui.navigation.Screen
@@ -143,40 +144,19 @@ fun MainApp(
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.testTag("bottom_nav_bar")
-            ) {
-                Screen.items.forEach { screen ->
-                    val isSelected = currentRoute == screen.route
-                    NavigationBarItem(
-                        selected = isSelected,
-                        onClick = {
-                            navController.navigate(screen.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = {
-                            Icon(
-                                imageVector = screen.icon,
-                                contentDescription = screen.title
-                            )
-                        },
-                        alwaysShowLabel = false,
-                        label = { Text(screen.title) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                        ),
-                        modifier = Modifier.testTag("nav_tab_${screen.route}")
-                    )
+            StudioBottomNavigation(
+                screens = Screen.items,
+                currentRoute = currentRoute,
+                onScreenSelected = { screen ->
+                    navController.navigate(screen.route) {
+                        popUpTo(navController.graph.findStartDestination().id) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
                 }
-            }
+            )
         }
     ) { innerPadding ->
         NavHost(

@@ -31,9 +31,7 @@ enum class HeaderMode(val displayName: String, val description: String) {
 }
 
 enum class ProtocolMode(val displayName: String) {
-    RAW_TCP_SERVER("Phone TCP Server — Port 50005 (Matches C3 Settings)"),
-    RAW_TCP_CLIENT("Phone TCP Client (Push to C3 IP)"),
-    HTTP_SERVER("Local HTTP Server (Browser / C3 Port 8080)")
+    RAW_UDP("UDP Stream — Low-Latency Real-Time")
 }
 
 enum class BufferLatencyPreset(val durationMs: Int, val displayName: String, val description: String) {

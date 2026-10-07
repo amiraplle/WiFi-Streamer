@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.VolumeOff
+import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -93,8 +95,7 @@ fun SettingsScreen(
     val prefs by viewModel.userPreferences.collectAsState()
     val formatCaps = viewModel.supportedFormatCapabilities
 
-    var tcpPortText by remember(prefs.targetPort) { mutableStateOf(prefs.targetPort.toString()) }
-    var httpPortText by remember(prefs.httpPort) { mutableStateOf(prefs.httpPort.toString()) }
+    var udpPortText by remember(prefs.targetPort) { mutableStateOf(prefs.targetPort.toString()) }
     var timeoutText by remember(prefs.connectionTimeoutMs) { mutableStateOf(prefs.connectionTimeoutMs.toString()) }
     var retriesText by remember(prefs.maxReconnectRetries) { mutableStateOf(prefs.maxReconnectRetries.toString()) }
 
@@ -127,7 +128,7 @@ fun SettingsScreen(
                     icon = Icons.Outlined.Audiotrack,
                     selectedValue = prefs.audioFormat,
                     items = formatCaps.map { it.format },
-                    itemTitle = { "${it.displayName} — ${it.bitrateKbps} kbps" },
+                    itemTitle = { "${it.displayName} [${it.dacCompatibility}] — ${it.bitrateKbps} kbps" },
                     onItemSelected = { viewModel.updateAudioFormat(it) },
                     testTag = "settings_audio_format"
                 )
@@ -222,33 +223,52 @@ fun SettingsScreen(
                     }
                 }
 
-                // Preferred Stream Protocol Dropdown (Matching Screenshot Exactly)
-                StudioDropdown(
-                    label = "Preferred Stream",
-                    icon = Icons.Outlined.Router,
-                    selectedValue = prefs.protocolMode,
-                    items = ProtocolMode.values().toList(),
-                    itemTitle = { mode ->
-                        when (mode) {
-                            ProtocolMode.RAW_TCP_SERVER -> "Raw TCP PCM — port ${prefs.targetPort}"
-                            ProtocolMode.RAW_TCP_CLIENT -> "Raw TCP Client — port ${prefs.targetPort}"
-                            ProtocolMode.HTTP_SERVER -> "HTTP WAV/PCM — port ${prefs.httpPort}"
+                // Dedicated UDP Audio Transport Info Card
+                Surface(
+                    color = Color(0xFF111116),
+                    border = BorderStroke(1.dp, Color(0xFF282834)),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Router,
+                            contentDescription = "UDP Transport",
+                            tint = StreamEmerald,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "STREAM PROTOCOL",
+                                fontSize = 10.sp,
+                                letterSpacing = 0.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF8E8E98)
+                            )
+                            Text(
+                                text = "UDP Datagram (Real-time, zero stall)",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = TextPrimary
+                            )
                         }
-                    },
-                    onItemSelected = { viewModel.updateProtocolMode(it) },
-                    testTag = "settings_protocol_mode"
-                )
+                    }
+                }
 
                 // Port & Timeout text fields
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
-                        value = tcpPortText,
+                        value = udpPortText,
                         onValueChange = {
-                            tcpPortText = it
+                            udpPortText = it
                             val p = it.toIntOrNull()
-                            if (p != null) viewModel.updateNetworkSettings(p, prefs.httpPort, prefs.connectionTimeoutMs, prefs.autoReconnect, prefs.maxReconnectRetries)
+                            if (p != null) viewModel.updateNetworkSettings(p, prefs.connectionTimeoutMs, prefs.autoReconnect, prefs.maxReconnectRetries)
                         },
-                        label = { Text("TCP PORT", fontSize = 10.sp, letterSpacing = 0.5.sp) },
+                        label = { Text("UDP PORT", fontSize = 10.sp, letterSpacing = 0.5.sp) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedContainerColor = Color(0xFF111116),
@@ -261,35 +281,12 @@ fun SettingsScreen(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(16.dp)
                     )
-                    OutlinedTextField(
-                        value = httpPortText,
-                        onValueChange = {
-                            httpPortText = it
-                            val p = it.toIntOrNull()
-                            if (p != null) viewModel.updateNetworkSettings(prefs.targetPort, p, prefs.connectionTimeoutMs, prefs.autoReconnect, prefs.maxReconnectRetries)
-                        },
-                        label = { Text("HTTP PORT", fontSize = 10.sp, letterSpacing = 0.5.sp) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color(0xFF111116),
-                            unfocusedContainerColor = Color(0xFF111116),
-                            focusedBorderColor = Color(0xFF5E5E76),
-                            unfocusedBorderColor = Color(0xFF343444),
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary
-                        ),
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(16.dp)
-                    )
-                }
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = timeoutText,
                         onValueChange = {
                             timeoutText = it
                             val t = it.toIntOrNull()
-                            if (t != null) viewModel.updateNetworkSettings(prefs.targetPort, prefs.httpPort, t, prefs.autoReconnect, prefs.maxReconnectRetries)
+                            if (t != null) viewModel.updateNetworkSettings(prefs.targetPort, t, prefs.autoReconnect, prefs.maxReconnectRetries)
                         },
                         label = { Text("TIMEOUT (MS)", fontSize = 10.sp, letterSpacing = 0.5.sp) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -304,12 +301,15 @@ fun SettingsScreen(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(16.dp)
                     )
+                }
+
+                Row(modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(
                         value = retriesText,
                         onValueChange = {
                             retriesText = it
                             val r = it.toIntOrNull()
-                            if (r != null) viewModel.updateNetworkSettings(prefs.targetPort, prefs.httpPort, prefs.connectionTimeoutMs, prefs.autoReconnect, r)
+                            if (r != null) viewModel.updateNetworkSettings(prefs.targetPort, prefs.connectionTimeoutMs, prefs.autoReconnect, r)
                         },
                         label = { Text("MAX RETRIES", fontSize = 10.sp, letterSpacing = 0.5.sp) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -321,7 +321,7 @@ fun SettingsScreen(
                             focusedTextColor = TextPrimary,
                             unfocusedTextColor = TextPrimary
                         ),
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp)
                     )
                 }
@@ -338,7 +338,7 @@ fun SettingsScreen(
                     StudioSwitch(
                         checked = prefs.autoReconnect,
                         onCheckedChange = {
-                            viewModel.updateNetworkSettings(prefs.targetPort, prefs.httpPort, prefs.connectionTimeoutMs, it, prefs.maxReconnectRetries)
+                            viewModel.updateNetworkSettings(prefs.targetPort, prefs.connectionTimeoutMs, it, prefs.maxReconnectRetries)
                         }
                     )
                 }
@@ -356,6 +356,39 @@ fun SettingsScreen(
                         checked = prefs.ratePacing,
                         onCheckedChange = { viewModel.updateRatePacing(it) },
                         modifier = Modifier.testTag("rate_pacing_switch")
+                    )
+                }
+
+                HorizontalDivider(color = Color(0xFF22222E))
+
+                // Wi-Fi QoS Voice Priority (WMM Voice / DSCP 46) Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 12.dp)
+                    ) {
+                        SettingItemHeader(
+                            icon = Icons.Outlined.Wifi,
+                            label = "Wi-Fi QoS Voice Priority"
+                        )
+                        Text(
+                            text = "Tags UDP packets with WMM Voice (DSCP 46 / 0xB8) to prevent packet loss under heavy network traffic",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 11.sp,
+                            color = Color(0xFF8E8E98),
+                            lineHeight = 14.sp,
+                            modifier = Modifier.padding(start = 25.dp, top = 2.dp)
+                        )
+                    }
+                    StudioSwitch(
+                        checked = prefs.wifiQosEnabled,
+                        onCheckedChange = { viewModel.updateWifiQos(it) },
+                        modifier = Modifier.testTag("wifi_qos_switch")
                     )
                 }
 
