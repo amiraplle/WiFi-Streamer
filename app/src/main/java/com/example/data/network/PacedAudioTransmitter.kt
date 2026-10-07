@@ -1,5 +1,4 @@
 package com.example.data.network
-
 import android.util.Log
 import com.example.domain.audio.AudioInterruptionLogger
 import com.example.domain.audio.AudioRingBuffer
@@ -80,7 +79,7 @@ class PacedAudioTransmitter(
         if (bytesPerSec <= 0L) bytesPerSec = 176400L
 
         var nextScheduledTimeNs = System.nanoTime()
-        val maxAllowedDriftNs = 50_000_000L // 50ms maximum allowable lag before resetting clock
+        val maxAllowedDriftNs = 10_000_000L // 10ms maximum allowable lag before resetting clock
         var starvationStartTime = 0L
         var isCurrentlyStarved = false
         var isPreRolling = true
@@ -145,21 +144,19 @@ class PacedAudioTransmitter(
             // transmit immediately to drain the excess backlog down to the target buffer level!
             val hasBacklog = !isComfortSilence && available > (targetPreRollBytes * 2)
 
-            if (ratePacingEnabled && !hasBacklog) {
+                        if (ratePacingEnabled && !hasBacklog) {
                 val now = System.nanoTime()
 
-                // If scheduled time is in the future, sleep precisely until transmission window
                 if (nextScheduledTimeNs > now) {
                     val waitNs = nextScheduledTimeNs - now
                     LockSupport.parkNanos(waitNs)
                     nextScheduledTimeNs += chunkDurationNs
                 } else {
-                    if ((now - nextScheduledTimeNs) > maxAllowedDriftNs) {
-                        nextScheduledTimeNs = now + chunkDurationNs
-                    } else {
-                        nextScheduledTimeNs += chunkDurationNs
-                    }
+                    // FIXED FOR UDP: If an app-switch animation stalls the thread, 
+                    // hard-reset the next window to right now. No packet bursting!
+                    nextScheduledTimeNs = now + chunkDurationNs
                 }
+            }
             } else if (hasBacklog) {
                 // Keep next scheduled time aligned with current real time
                 nextScheduledTimeNs = System.nanoTime()
