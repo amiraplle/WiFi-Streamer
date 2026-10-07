@@ -1,5 +1,4 @@
 package com.example.service
-
 import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
@@ -378,6 +377,11 @@ class StreamingService : Service() {
 
     private fun startTransport(prefs: UserPreferences) {
         serviceScope.launch(Dispatchers.IO) {
+                        try {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not set thread priority: ${e.message}")
+                        }
             udpClient?.connectAndStart(
                 host = prefs.targetHost,
                 port = prefs.targetPort,
