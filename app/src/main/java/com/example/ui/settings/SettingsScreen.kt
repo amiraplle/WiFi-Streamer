@@ -26,12 +26,15 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Audiotrack
+import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.ElectricBolt
+import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.PhoneAndroid
+import androidx.compose.material.icons.outlined.Podcasts
 import androidx.compose.material.icons.outlined.Router
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Sync
@@ -411,6 +414,117 @@ fun SettingsScreen(
         }
 
         // =========================================================================
+        // AUDIOPHILE ENGINE TWEAKS (Optional Pro Toggles)
+        // =========================================================================
+        SettingsHeader(title = "AUDIOPHILE ENGINE TWEAKS")
+
+        StudioCard(
+            modifier = Modifier.fillMaxWidth().testTag("audiophile_tweaks_card")
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // 1. Bit-Perfect Direct Mode
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 12.dp)
+                    ) {
+                        SettingItemHeader(
+                            icon = Icons.Outlined.GraphicEq,
+                            label = "Bit-Perfect Direct Mode"
+                        )
+                        Text(
+                            text = "Bypasses volume math, EQ, and limiter stages for 100% bit-exact bitstream to external DAC",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 11.sp,
+                            color = Color(0xFF8E8E98),
+                            lineHeight = 14.sp,
+                            modifier = Modifier.padding(start = 25.dp, top = 2.dp)
+                        )
+                    }
+                    StudioSwitch(
+                        checked = prefs.bitPerfectMode,
+                        onCheckedChange = { viewModel.updateBitPerfectMode(it) },
+                        modifier = Modifier.testTag("bit_perfect_switch")
+                    )
+                }
+
+                HorizontalDivider(color = Color(0xFF22222E))
+
+                // 2. TPDF Dithering & Anti-Truncation
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 12.dp)
+                    ) {
+                        SettingItemHeader(
+                            icon = Icons.Outlined.Bolt,
+                            label = "TPDF Dithering (Anti-Truncation)"
+                        )
+                        Text(
+                            text = "Applies Triangular PDF dither during volume changes to eliminate quantization distortion and preserve micro-details",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 11.sp,
+                            color = Color(0xFF8E8E98),
+                            lineHeight = 14.sp,
+                            modifier = Modifier.padding(start = 25.dp, top = 2.dp)
+                        )
+                    }
+                    StudioSwitch(
+                        checked = prefs.ditherEnabled,
+                        onCheckedChange = { viewModel.updateDitherEnabled(it) },
+                        modifier = Modifier.testTag("dither_switch")
+                    )
+                }
+
+                HorizontalDivider(color = Color(0xFF22222E))
+
+                // 3. Warm Radio Keep-Alive Carrier
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 12.dp)
+                    ) {
+                        SettingItemHeader(
+                            icon = Icons.Outlined.Podcasts,
+                            label = "Warm Radio Keep-Alive Carrier"
+                        )
+                        Text(
+                            text = "Transmits low-rate silence packets during pauses to keep ESP32 Wi-Fi & I2S PLL locked for instant resume",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 11.sp,
+                            color = Color(0xFF8E8E98),
+                            lineHeight = 14.sp,
+                            modifier = Modifier.padding(start = 25.dp, top = 2.dp)
+                        )
+                    }
+                    StudioSwitch(
+                        checked = prefs.keepAliveSilence,
+                        onCheckedChange = { viewModel.updateKeepAliveSilence(it) },
+                        modifier = Modifier.testTag("keep_alive_carrier_switch")
+                    )
+                }
+            }
+        }
+
+        // =========================================================================
         // SYSTEM & DIAGNOSTICS
         // =========================================================================
         SettingsHeader(title = "SYSTEM & DIAGNOSTICS")
@@ -457,7 +571,7 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    SettingItemHeader(icon = Icons.Outlined.Info, label = "C3 Audio Streamer (v1.6)")
+                    SettingItemHeader(icon = Icons.Outlined.Info, label = "Audio Studio (v1.6)")
 
                     Surface(
                         color = Color(0xFF1E1E26),

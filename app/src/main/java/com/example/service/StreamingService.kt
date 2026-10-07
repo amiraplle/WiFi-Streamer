@@ -133,9 +133,14 @@ class StreamingService : Service() {
             }
         )
 
-        // Dynamically reflect changes made in Settings (Rate pacing, Wi-Fi QoS)
+        // Dynamically reflect changes made in Settings (Rate pacing, Wi-Fi QoS, Bit-Perfect, Dither, Keep-Alive)
         serviceScope.launch {
             AppContainer.getPreferences(this@StreamingService).userPreferences.collect { prefs ->
+                captureManager?.volumePercent = prefs.transmissionVolume
+                captureManager?.isMuted = prefs.isMuted
+                captureManager?.bitPerfectMode = prefs.bitPerfectMode
+                captureManager?.ditherEnabled = prefs.ditherEnabled
+                captureManager?.keepAliveSilence = prefs.keepAliveSilence
                 pacedTransmitter?.ratePacingEnabled = prefs.ratePacing
                 udpClient?.setQosEnabled(prefs.wifiQosEnabled)
             }
@@ -276,6 +281,9 @@ class StreamingService : Service() {
         val prefs = AppContainer.getPreferences(this).userPreferences.value
         captureManager?.volumePercent = prefs.transmissionVolume
         captureManager?.isMuted = prefs.isMuted
+        captureManager?.bitPerfectMode = prefs.bitPerfectMode
+        captureManager?.ditherEnabled = prefs.ditherEnabled
+        captureManager?.keepAliveSilence = prefs.keepAliveSilence
         pacedTransmitter?.ratePacingEnabled = prefs.ratePacing
 
         _telemetry.value = StreamTelemetry(
@@ -565,7 +573,7 @@ class StreamingService : Service() {
             StreamingState.RECONNECTING -> "Reconnecting to ${t.targetHost} (#${t.reconnectCount})…"
             StreamingState.DISCONNECTED -> "Disconnected from receiver"
             StreamingState.ERROR -> "Streaming Error: ${t.lastError ?: "Unknown"}"
-            StreamingState.IDLE -> "C3 Audio Streamer Ready"
+            StreamingState.IDLE -> "Audio Studio Ready"
         }
 
         val volStr = "Vol: ${prefs.transmissionVolume}%${if (prefs.isMuted) " [MUTED]" else ""}"

@@ -47,6 +47,18 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         prefsRepo.updateWifiQos(enabled)
     }
 
+    fun updateBitPerfectMode(enabled: Boolean) {
+        prefsRepo.updateBitPerfectMode(enabled)
+    }
+
+    fun updateDitherEnabled(enabled: Boolean) {
+        prefsRepo.updateDitherEnabled(enabled)
+    }
+
+    fun updateKeepAliveSilence(enabled: Boolean) {
+        prefsRepo.updateKeepAliveSilence(enabled)
+    }
+
     fun updateMutePhoneWhileStreaming(enabled: Boolean) {
         prefsRepo.updateMutePhoneWhileStreaming(enabled)
     }

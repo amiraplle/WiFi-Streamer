@@ -40,7 +40,7 @@ class StreamingTileService : TileService() {
         val isStreaming = service != null && service.telemetry.value.streamingState == StreamingState.STREAMING
 
         tile.state = if (isStreaming) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-        tile.label = if (isStreaming) "C3 Streaming" else "C3 Streamer"
+        tile.label = if (isStreaming) "Audio Streaming" else "Audio Studio"
         tile.subtitle = if (isStreaming) service?.telemetry?.value?.targetHost else "Tap to open"
         tile.updateTile()
     }

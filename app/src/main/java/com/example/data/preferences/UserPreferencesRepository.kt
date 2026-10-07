@@ -28,6 +28,8 @@ data class UserPreferences(
     val connectionTimeoutMs: Int = 5000,
     val ratePacing: Boolean = true,
     val keepAliveSilence: Boolean = true,
+    val bitPerfectMode: Boolean = false,
+    val ditherEnabled: Boolean = true,
     val dspEnabled: Boolean = false,
     val eqPresetName: String = "Flat",
     val eqBand0: Float = 0f,
@@ -83,6 +85,8 @@ class UserPreferencesRepository(context: Context) {
             connectionTimeoutMs = prefs.getInt("conn_timeout_ms", 5000),
             ratePacing = prefs.getBoolean("rate_pacing", true),
             keepAliveSilence = prefs.getBoolean("keep_alive_silence", true),
+            bitPerfectMode = prefs.getBoolean("bit_perfect_mode", false),
+            ditherEnabled = prefs.getBoolean("dither_enabled", true),
             dspEnabled = prefs.getBoolean("dsp_enabled", false),
             eqPresetName = prefs.getString("eq_preset_name", "Flat") ?: "Flat",
             eqBand0 = prefs.getFloat("eq_band_0", 0f),
@@ -155,6 +159,21 @@ class UserPreferencesRepository(context: Context) {
     fun updateWifiQos(enabled: Boolean) {
         prefs.edit().putBoolean("wifi_qos_enabled", enabled).apply()
         _userPreferences.value = _userPreferences.value.copy(wifiQosEnabled = enabled)
+    }
+
+    fun updateBitPerfectMode(enabled: Boolean) {
+        prefs.edit().putBoolean("bit_perfect_mode", enabled).apply()
+        _userPreferences.value = _userPreferences.value.copy(bitPerfectMode = enabled)
+    }
+
+    fun updateDitherEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("dither_enabled", enabled).apply()
+        _userPreferences.value = _userPreferences.value.copy(ditherEnabled = enabled)
+    }
+
+    fun updateKeepAliveSilence(enabled: Boolean) {
+        prefs.edit().putBoolean("keep_alive_silence", enabled).apply()
+        _userPreferences.value = _userPreferences.value.copy(keepAliveSilence = enabled)
     }
 
     fun updateNetworkSettings(

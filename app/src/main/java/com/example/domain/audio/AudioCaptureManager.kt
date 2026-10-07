@@ -50,6 +50,15 @@ class AudioCaptureManager(
     @Volatile
     var isMuted: Boolean = false
 
+    @Volatile
+    var bitPerfectMode: Boolean = false
+
+    @Volatile
+    var ditherEnabled: Boolean = true
+
+    @Volatile
+    var keepAliveSilence: Boolean = true
+
     val dspEngine = AudioDspEngine()
 
     @SuppressLint("MissingPermission")
@@ -223,6 +232,7 @@ class AudioCaptureManager(
         var silentChunksCount = 0
         var isCurrentlySilent = false
         var lastAudioTimestamp = System.currentTimeMillis()
+        var lastKeepAliveSentTimestamp = 0L
         var stallStartTime = 0L
 
         while (isRunning.get()) {
@@ -298,7 +308,9 @@ class AudioCaptureManager(
                     volumePercent = volumePercent,
                     isMuted = isMuted,
                     dspEngine = dspEngine,
-                    channels = currentFormat.channelCount
+                    channels = currentFormat.channelCount,
+                    bitPerfectMode = bitPerfectMode,
+                    ditherEnabled = ditherEnabled
                 )
 
                 // Detect silence
@@ -338,6 +350,16 @@ class AudioCaptureManager(
                 if (stallStartTime == 0L && (now - lastAudioTimestamp) > 100L) {
                     stallStartTime = lastAudioTimestamp
                 }
+
+                // If playback is paused and keepAliveSilence is enabled, inject lightweight silence packets
+                // to prevent Wi-Fi modem-sleep and keep ESP32 I2S PLL locked and warm for instant resume
+                if (keepAliveSilence && (now - lastAudioTimestamp >= 300L) && (now - lastKeepAliveSentTimestamp >= 250L)) {
+                    lastKeepAliveSentTimestamp = now
+                    val keepAliveLen = (currentFormat.sampleRate * currentFormat.frameSizeBytes / 50).coerceIn(128, 512)
+                    val silenceChunk = ByteArray(keepAliveLen)
+                    onAudioChunkReady(silenceChunk, keepAliveLen, true)
+                }
+
                 // Sleep 2ms with parkNanos to yield CPU without busy-spin
                 LockSupport.parkNanos(2_000_000L)
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && bytesRead == AudioRecord.ERROR_DEAD_OBJECT) {

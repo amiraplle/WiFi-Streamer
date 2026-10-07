@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">C3 Audio Streamer</string>
+    <string name="app_name">Audio Studio</string>
     <string name="nav_home">Home</string>
     <string name="nav_receivers">Receivers</string>
     <string name="nav_settings">Settings</string>
