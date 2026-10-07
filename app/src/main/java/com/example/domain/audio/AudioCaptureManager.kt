@@ -1,5 +1,4 @@
 package com.example.domain.audio
-
 import android.annotation.SuppressLint
 import android.media.AudioAttributes
 import android.media.AudioFormat
@@ -105,7 +104,7 @@ class AudioCaptureManager(
 
         // Initialize reusable byte array pool
         bufferQueue.clear()
-        for (i in 0 until 8) {
+        for (i in 0 until 64) {
             bufferQueue.offer(ByteArray(bufferSize))
         }
 
@@ -134,7 +133,7 @@ class AudioCaptureManager(
                         .build()
 
                     // Give AudioRecord OS driver a deep 500ms hardware buffer so Android never overflows during UI animations
-                    val targetDriverBufferBytes = (sampleRate * format.frameSizeBytes * 500) / 1000
+                    val targetDriverBufferBytes = (sampleRate * format.frameSizeBytes * 1000) / 1000
                     val bufferBytes = targetDriverBufferBytes.coerceAtLeast(minHardwareBufferSize * 4)
 
                     try {
