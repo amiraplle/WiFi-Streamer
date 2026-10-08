@@ -56,10 +56,6 @@ class MainActivity : ComponentActivity() {
     private val receiversViewModel: ReceiversViewModel by viewModels()
     private val settingsViewModel: SettingsViewModel by viewModels()
 
-    private val startupPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ -> }
-
     private val appExitReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == StreamingService.BROADCAST_APP_EXIT) {
@@ -77,25 +73,6 @@ class MainActivity : ComponentActivity() {
             registerReceiver(appExitReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             registerReceiver(appExitReceiver, filter)
-        }
-
-        // Request RECORD_AUDIO, POST_NOTIFICATIONS and NEARBY_WIFI_DEVICES
-        val neededPermissions = mutableListOf<String>()
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            neededPermissions.add(Manifest.permission.RECORD_AUDIO)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                neededPermissions.add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
-                neededPermissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
-            }
-        }
-        if (neededPermissions.isNotEmpty()) {
-            startupPermissionLauncher.launch(neededPermissions.toTypedArray())
         }
 
         setContent {

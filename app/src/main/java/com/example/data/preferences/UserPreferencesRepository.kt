@@ -83,12 +83,16 @@ class UserPreferencesRepository(context: Context) {
             sampleRate = prefs.getInt("sample_rate", 44100),
             bitDepth = prefs.getInt("bit_depth", 16),
             channelCount = prefs.getInt("channel_count", 2),
-            headerMode = HeaderMode.valueOf(
-                prefs.getString("header_mode", HeaderMode.AUTO.name) ?: HeaderMode.AUTO.name
-            ),
-            bufferPreset = BufferLatencyPreset.valueOf(
-                prefs.getString("buffer_preset", BufferLatencyPreset.BALANCED.name) ?: BufferLatencyPreset.BALANCED.name
-            ),
+            headerMode = try {
+                HeaderMode.valueOf(prefs.getString("header_mode", HeaderMode.AUTO.name) ?: HeaderMode.AUTO.name)
+            } catch (_: Exception) {
+                HeaderMode.AUTO
+            },
+            bufferPreset = try {
+                BufferLatencyPreset.valueOf(prefs.getString("buffer_preset", BufferLatencyPreset.BALANCED.name) ?: BufferLatencyPreset.BALANCED.name)
+            } catch (_: Exception) {
+                BufferLatencyPreset.BALANCED
+            },
             transmissionVolume = prefs.getInt("transmission_volume", 100),
             isMuted = prefs.getBoolean("is_muted", false),
             autoReconnect = prefs.getBoolean("auto_reconnect", true),

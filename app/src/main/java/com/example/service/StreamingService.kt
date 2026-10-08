@@ -1,11 +1,14 @@
 package com.example.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import androidx.core.content.ContextCompat
 import android.media.AudioManager
 import android.media.VolumeProvider
 import android.media.projection.MediaProjection
@@ -236,9 +239,20 @@ class StreamingService : Service() {
         )
 
         val hasProjection = projectionIntentData != null && projectionResultCode != 0
+        val hasMicPermission = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
 
         val serviceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            var type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            } else {
+                0
+            }
+            if (hasMicPermission) {
+                type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            }
             if (hasProjection && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             }
@@ -256,10 +270,12 @@ class StreamingService : Service() {
             )
             Log.i(TAG, "startForeground succeeded with type=$serviceType")
         } catch (e: Exception) {
-            Log.w(TAG, "Failed startForeground with type $serviceType, falling back to MICROPHONE: ${e.message}")
+            Log.w(TAG, "Failed startForeground with type $serviceType, falling back safely: ${e.message}")
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, 0)
                 } else {
                     ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, 0)
                 }

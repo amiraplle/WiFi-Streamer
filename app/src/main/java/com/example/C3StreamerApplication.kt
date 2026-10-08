@@ -41,9 +41,19 @@ class C3StreamerApplication : Application() {
         super.onCreate()
         instance = this
 
-        // Warm up container
-        AppContainer.getDatabase(this)
-        AppContainer.getPreferences(this)
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            android.util.Log.e("C3StreamerApplication", "FATAL CRASH on thread ${thread.name}: ${throwable.message}", throwable)
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
+
+        try {
+            // Warm up container
+            AppContainer.getDatabase(this)
+            AppContainer.getPreferences(this)
+        } catch (e: Exception) {
+            android.util.Log.e("C3StreamerApplication", "AppContainer warmup error: ${e.message}", e)
+        }
 
         createNotificationChannel()
     }

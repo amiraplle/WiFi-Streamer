@@ -38,7 +38,6 @@ class ReceiversViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             repository.getDefaultReceiver() // Ensures default C3 is in database
         }
-        startScan()
     }
 
     fun startScan() {
