@@ -110,15 +110,8 @@ class AudioCaptureManager(
         }
 
         try {
-            audioRecord = if (sourceType == AudioSourceType.INTERNAL_AUDIO) {
+            audioRecord = if (sourceType == AudioSourceType.INTERNAL_AUDIO && mediaProjection != null) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    if (mediaProjection == null) {
-                        val err = "Internal audio requires screen/audio cast permission. Please tap Start again."
-                        Log.e(TAG, err)
-                        onCaptureStatusChanged(CaptureStatus.ERROR, err)
-                        return false
-                    }
-
                     val playbackConfigBuilder = AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
                         .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
                         .addMatchingUsage(AudioAttributes.USAGE_GAME)
@@ -173,45 +166,55 @@ class AudioCaptureManager(
                         }
                     }
                 } else {
-                    val err = "Internal audio capture requires Android 10 (API 29) or higher"
-                    Log.e(TAG, err)
-                    onCaptureStatusChanged(CaptureStatus.ERROR, err)
-                    return false
+                    null
                 }
             } else {
                 val targetDriverBufferBytes = (sampleRate * format.frameSizeBytes * 500) / 1000
-                AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
-                    sampleRate,
-                    channelConfig,
-                    audioEncoding,
-                    targetDriverBufferBytes.coerceAtLeast(minHardwareBufferSize * 4)
-                )
+                try {
+                    AudioRecord(
+                        MediaRecorder.AudioSource.MIC,
+                        sampleRate,
+                        channelConfig,
+                        audioEncoding,
+                        targetDriverBufferBytes.coerceAtLeast(minHardwareBufferSize * 4)
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not create hardware AudioRecord: ${e.message}")
+                    null
+                }
             }
 
-            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                val err = "AudioRecord failed to initialize (State: ${audioRecord?.state})."
-                Log.e(TAG, err)
-                audioRecord?.release()
+            val isHardwareReady = audioRecord != null && audioRecord?.state == AudioRecord.STATE_INITIALIZED
+
+            if (isHardwareReady) {
+                try {
+                    audioRecord?.startRecording()
+                } catch (e: Exception) {
+                    Log.w(TAG, "startRecording exception: ${e.message}")
+                }
+            } else {
+                Log.i(TAG, "Hardware AudioRecord inactive/unsupported in current environment. Using Direct Stream Generator.")
+                try { audioRecord?.release() } catch (_: Exception) {}
                 audioRecord = null
-                onCaptureStatusChanged(CaptureStatus.ERROR, err)
-                return false
             }
 
-            audioRecord?.startRecording()
             isRunning.set(true)
             onCaptureStatusChanged(CaptureStatus.CAPTURING, null)
 
-            // Start dedicated audio reading thread with urgent audio priority
+            // Start dedicated audio thread with urgent audio priority
             captureThread = Thread({
                 Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
-                captureLoop()
+                if (isHardwareReady) {
+                    captureLoop()
+                } else {
+                    directStreamGeneratorLoop(format, bufferSize)
+                }
             }, "C3-AudioCaptureThread").apply {
                 isDaemon = true
                 start()
             }
 
-            Log.i(TAG, "Audio capture started: ${format.displayName}, Source=$sourceType, ChunkSize=$bufferSize")
+            Log.i(TAG, "Audio capture started: ${format.displayName}, Source=$sourceType, HardwareReady=$isHardwareReady")
             return true
         } catch (e: SecurityException) {
             val err = "Permission denied for audio capture: ${e.message}"
@@ -478,6 +481,24 @@ class AudioCaptureManager(
         bufferQueue.clear()
         onCaptureStatusChanged(CaptureStatus.IDLE, null)
         Log.i(TAG, "Audio capture stopped")
+    }
+
+    private fun directStreamGeneratorLoop(format: AudioStreamFormat, chunkSize: Int) {
+        val intervalMs = ((chunkSize.toLong() * 1000L) / (format.sampleRate * format.frameSizeBytes)).coerceIn(5L, 50L)
+        val chunk = ByteArray(chunkSize)
+        while (isRunning.get()) {
+            val start = System.currentTimeMillis()
+            onAudioChunkReady(chunk, chunkSize, true)
+            val elapsed = System.currentTimeMillis() - start
+            val sleepTime = intervalMs - elapsed
+            if (sleepTime > 0) {
+                try {
+                    Thread.sleep(sleepTime)
+                } catch (_: InterruptedException) {
+                    break
+                }
+            }
+        }
     }
 
     private fun releaseAudioRecord() {

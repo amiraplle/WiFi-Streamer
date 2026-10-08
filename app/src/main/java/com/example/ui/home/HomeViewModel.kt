@@ -7,6 +7,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.AppContainer
 import com.example.domain.audio.AudioDeviceCapabilityDetector
+import com.example.domain.safety.ActiveStreamProcess
+import com.example.domain.safety.StreamSafetyCoordinator
 import com.example.model.AudioSourceType
 import com.example.model.AudioStreamFormat
 import com.example.model.CaptureStatus
@@ -27,6 +29,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _telemetry = MutableStateFlow(StreamTelemetry())
     val telemetry: StateFlow<StreamTelemetry> = _telemetry.asStateFlow()
+
+    val activeSafetyProcess: StateFlow<ActiveStreamProcess> = StreamSafetyCoordinator.activeProcess
+    val safetyNotice: StateFlow<String?> = StreamSafetyCoordinator.safetyEventNotice
 
     val isInternalAudioSupported = AudioDeviceCapabilityDetector.isInternalAudioSupported
 
@@ -58,28 +63,15 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startStreaming(context: Context, resultCode: Int, data: Intent?) {
-        StreamingService.projectionResultCode = resultCode
-        StreamingService.projectionIntentData = data
-
-        val startIntent = Intent(context, StreamingService::class.java).apply {
-            action = StreamingService.ACTION_START
-            putExtra("result_code", resultCode)
-            if (data != null) {
-                putExtra("intent_data", data)
-            }
-        }
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            context.startForegroundService(startIntent)
-        } else {
-            context.startService(startIntent)
-        }
+        StreamSafetyCoordinator.startSystemStream(context, resultCode, data)
     }
 
     fun stopStreaming(context: Context) {
-        val stopIntent = Intent(context, StreamingService::class.java).apply {
-            action = StreamingService.ACTION_STOP
-        }
-        context.startService(stopIntent)
+        StreamSafetyCoordinator.stopCurrentStream(context)
+    }
+
+    fun dismissSafetyNotice() {
+        StreamSafetyCoordinator.dismissNotice()
     }
 
     fun reconnect() {

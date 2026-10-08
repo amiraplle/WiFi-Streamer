@@ -37,6 +37,8 @@ import android.os.Build
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.example.service.StreamingService
+import com.example.ui.browser.BrowserScreen
+import com.example.ui.browser.BrowserViewModel
 import com.example.ui.components.StudioBottomNavigation
 import com.example.ui.home.HomeScreen
 import com.example.ui.home.HomeViewModel
@@ -50,6 +52,7 @@ import com.example.ui.theme.C3StreamerTheme
 class MainActivity : ComponentActivity() {
 
     private val homeViewModel: HomeViewModel by viewModels()
+    private val browserViewModel: BrowserViewModel by viewModels()
     private val receiversViewModel: ReceiversViewModel by viewModels()
     private val settingsViewModel: SettingsViewModel by viewModels()
 
@@ -99,6 +102,7 @@ class MainActivity : ComponentActivity() {
             C3StreamerTheme {
                 MainApp(
                     homeViewModel = homeViewModel,
+                    browserViewModel = browserViewModel,
                     receiversViewModel = receiversViewModel,
                     settingsViewModel = settingsViewModel
                 )
@@ -133,6 +137,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainApp(
     homeViewModel: HomeViewModel,
+    browserViewModel: BrowserViewModel,
     receiversViewModel: ReceiversViewModel,
     settingsViewModel: SettingsViewModel
 ) {
@@ -176,6 +181,11 @@ fun MainApp(
                             launchSingleTop = true
                         }
                     }
+                )
+            }
+            composable(Screen.Browser.route) {
+                BrowserScreen(
+                    viewModel = browserViewModel
                 )
             }
             composable(Screen.Receivers.route) {

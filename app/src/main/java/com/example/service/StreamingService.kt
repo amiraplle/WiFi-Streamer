@@ -32,6 +32,7 @@ import com.example.data.network.UdpStreamClient
 import com.example.data.preferences.UserPreferences
 import com.example.domain.audio.AudioCaptureManager
 import com.example.domain.audio.AudioRingBuffer
+import com.example.domain.safety.StreamSafetyCoordinator
 import com.example.model.AudioSourceType
 import com.example.model.CaptureStatus
 import com.example.model.ProtocolMode
@@ -177,6 +178,8 @@ class StreamingService : Service() {
         }
     }
 
+    private var activeStreamSource: String? = null
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action ?: ACTION_START
         when (action) {
@@ -188,6 +191,7 @@ class StreamingService : Service() {
                     @Suppress("DEPRECATION")
                     intent?.getParcelableExtra("intent_data")
                 }
+                activeStreamSource = intent?.getStringExtra("stream_source")
                 if (code != 0) projectionResultCode = code
                 if (data != null) projectionIntentData = data
 
@@ -286,11 +290,16 @@ class StreamingService : Service() {
         captureManager?.keepAliveSilence = prefs.keepAliveSilence
         pacedTransmitter?.ratePacingEnabled = prefs.ratePacing
 
+        val effectiveSource = when {
+            activeStreamSource == "browser" -> AudioSourceType.BROWSER_STREAM
+            else -> prefs.audioSource
+        }
+
         _telemetry.value = StreamTelemetry(
             streamingState = StreamingState.CONNECTING,
             captureStatus = CaptureStatus.INITIALIZING,
             format = prefs.audioFormat,
-            audioSource = prefs.audioSource,
+            audioSource = effectiveSource,
             targetHost = prefs.targetHost,
             targetPort = prefs.targetPort,
             protocolMode = prefs.protocolMode,
@@ -298,8 +307,8 @@ class StreamingService : Service() {
             isMuted = prefs.isMuted
         )
 
-        // Setup MediaProjection if capturing internal audio
-        if (prefs.audioSource == AudioSourceType.INTERNAL_AUDIO && mediaProjection == null) {
+        // Setup MediaProjection ONLY if user specifically requested System Audio AND provided tokens
+        if (effectiveSource == AudioSourceType.INTERNAL_AUDIO && mediaProjection == null) {
             val projData = projectionIntentData
             val projCode = projectionResultCode
             if (projData != null && projCode != 0) {
@@ -343,10 +352,10 @@ class StreamingService : Service() {
         pacedTransmitter?.setTargetLatencyPreset(prefs.bufferPreset, prefs.audioFormat)
         pacedTransmitter?.start(prefs.audioFormat)
 
-        // Start Audio Capture
+        // Start Audio Capture with effective source (Zero Screen Capture for Direct & Browser)
         val captureOk = captureManager?.startCapture(
             format = prefs.audioFormat,
-            sourceType = prefs.audioSource,
+            sourceType = effectiveSource,
             latencyPreset = prefs.bufferPreset,
             mediaProjection = mediaProjection
         ) ?: false
@@ -711,6 +720,7 @@ class StreamingService : Service() {
         )
 
         stopForeground(STOP_FOREGROUND_REMOVE)
+        StreamSafetyCoordinator.notifyServiceStopped()
         stopSelf()
         Log.i(TAG, "StreamingService completely stopped")
     }

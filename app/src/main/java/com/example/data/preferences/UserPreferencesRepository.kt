@@ -15,7 +15,7 @@ data class UserPreferences(
     val targetHost: String = "c3music.local",
     val targetPort: Int = 50005,
     val protocolMode: ProtocolMode = ProtocolMode.RAW_UDP,
-    val audioSource: AudioSourceType = AudioSourceType.INTERNAL_AUDIO,
+    val audioSource: AudioSourceType = AudioSourceType.DIRECT_AUDIO,
     val sampleRate: Int = 44100,
     val bitDepth: Int = 16,
     val channelCount: Int = 2,
@@ -66,9 +66,20 @@ class UserPreferencesRepository(context: Context) {
             } catch (_: Exception) {
                 ProtocolMode.RAW_UDP
             },
-            audioSource = AudioSourceType.valueOf(
-                prefs.getString("audio_source", AudioSourceType.INTERNAL_AUDIO.name) ?: AudioSourceType.INTERNAL_AUDIO.name
-            ),
+            audioSource = run {
+                val explicitOptIn = prefs.getBoolean("user_explicit_internal_audio", false)
+                val rawSource = prefs.getString("audio_source", null)
+                when (rawSource) {
+                    AudioSourceType.DIRECT_AUDIO.name -> AudioSourceType.DIRECT_AUDIO
+                    AudioSourceType.MICROPHONE.name -> AudioSourceType.MICROPHONE
+                    AudioSourceType.BROWSER_STREAM.name -> AudioSourceType.BROWSER_STREAM
+                    AudioSourceType.INTERNAL_AUDIO.name -> {
+                        // Only honor INTERNAL_AUDIO if the user explicitly opted into screen/audio cast prompt
+                        if (explicitOptIn) AudioSourceType.INTERNAL_AUDIO else AudioSourceType.DIRECT_AUDIO
+                    }
+                    else -> AudioSourceType.DIRECT_AUDIO
+                }
+            },
             sampleRate = prefs.getInt("sample_rate", 44100),
             bitDepth = prefs.getInt("bit_depth", 16),
             channelCount = prefs.getInt("channel_count", 2),
@@ -108,7 +119,10 @@ class UserPreferencesRepository(context: Context) {
     }
 
     fun updateAudioSource(source: AudioSourceType) {
-        prefs.edit().putString("audio_source", source.name).apply()
+        prefs.edit()
+            .putString("audio_source", source.name)
+            .putBoolean("user_explicit_internal_audio", source == AudioSourceType.INTERNAL_AUDIO)
+            .apply()
         _userPreferences.value = _userPreferences.value.copy(audioSource = source)
     }
 

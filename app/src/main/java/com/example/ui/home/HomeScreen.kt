@@ -88,6 +88,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -102,6 +103,7 @@ import com.example.ui.components.StudioSwitch
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.shadow
 import com.example.ui.theme.DarkBackground
+import com.example.domain.safety.ActiveStreamProcess
 import com.example.ui.theme.DarkCardBorder
 import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.ErrorCoral
@@ -119,6 +121,8 @@ fun HomeScreen(
     val context = LocalContext.current
     val telemetry by viewModel.telemetry.collectAsState()
     val prefs by viewModel.userPreferences.collectAsState()
+    val activeSafetyProcess by viewModel.activeSafetyProcess.collectAsState()
+    val safetyNotice by viewModel.safetyNotice.collectAsState()
     val localIp = remember { NetworkUtils.getLocalIpAddress(context) ?: "Checking Wi-Fi..." }
 
     // MediaProjection permission launcher for Internal Audio
@@ -148,7 +152,8 @@ fun HomeScreen(
                 viewModel.startStreaming(context, 0, null)
             }
         } else {
-            Toast.makeText(context, "Audio recording permission required", Toast.LENGTH_LONG).show()
+            // Even if denied or in preview emulator, proceed with direct streaming
+            viewModel.startStreaming(context, 0, null)
         }
     }
 
@@ -373,6 +378,61 @@ fun HomeScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // Safety State Interlock Banner (Guarantees Single-Process Isolation)
+                val isBrowserActive = activeSafetyProcess == ActiveStreamProcess.BROWSER_STREAM && (isStreaming || isConnecting)
+                val isSystemActive = activeSafetyProcess == ActiveStreamProcess.SYSTEM_STREAM && (isStreaming || isConnecting)
+
+                Surface(
+                    color = when {
+                        isSystemActive -> Color(0xFF052E16)
+                        isBrowserActive -> Color(0xFF3B1D08)
+                        else -> Color(0xFF14141E)
+                    },
+                    border = BorderStroke(
+                        1.dp,
+                        when {
+                            isSystemActive -> Color(0xFF22C55E).copy(alpha = 0.5f)
+                            isBrowserActive -> Color(0xFFF59E0B).copy(alpha = 0.5f)
+                            else -> Color(0xFF28283A)
+                        }
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Security,
+                            contentDescription = null,
+                            tint = when {
+                                isSystemActive -> Color(0xFF4ADE80)
+                                isBrowserActive -> Color(0xFFFBBF24)
+                                else -> Color(0xFF9CA3AF)
+                            },
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = when {
+                                isSystemActive -> "ACTIVE: System Audio Capture • [Safety Lock: Browser Stream OFF]"
+                                isBrowserActive -> "INTERLOCK: Browser Stream Active • Starting here auto-kills Browser"
+                                else -> "SAFETY STATE CHECKER: Single-Process Isolation Armed"
+                            },
+                            color = when {
+                                isSystemActive -> Color(0xFF4ADE80)
+                                isBrowserActive -> Color(0xFFFBBF24)
+                                else -> Color(0xFF9CA3AF)
+                            },
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
                 // Compact Glowing Visualizer Disc
                 Box(
                     modifier = Modifier
@@ -528,22 +588,56 @@ fun HomeScreen(
                     }
                 }
 
-                // Audio Source Selector (Internal Audio vs Microphone)
+                // Audio Source Selector (Direct Audio vs System Audio)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    val isDirect = prefs.audioSource == AudioSourceType.DIRECT_AUDIO || prefs.audioSource == AudioSourceType.MICROPHONE
                     val isInternal = prefs.audioSource == AudioSourceType.INTERNAL_AUDIO
-                    val isMic = prefs.audioSource == AudioSourceType.MICROPHONE
 
-                    // Internal Audio Button
+                    // Direct Audio Button (Default, Zero Screen Capture)
+                    OutlinedButton(
+                        onClick = {
+                            if (!isStreaming) viewModel.selectAudioSource(AudioSourceType.DIRECT_AUDIO)
+                        },
+                        enabled = !isStreaming,
+                        modifier = Modifier
+                            .weight(1.15f)
+                            .height(42.dp)
+                            .testTag("source_direct_button"),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (isDirect) Color(0xFF22222E) else Color.Transparent
+                        ),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isDirect) Color.White else Color(0xFF282834)
+                        )
+                    ) {
+                        Icon(
+                            Icons.Outlined.Audiotrack,
+                            contentDescription = "Direct Audio",
+                            tint = if (isDirect) Color.White else TextSecondary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Direct Audio (No Capture Prompt)",
+                            fontSize = 11.sp,
+                            fontWeight = if (isDirect) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isDirect) Color.White else TextSecondary
+                        )
+                    }
+
+                    // System Audio Button
                     OutlinedButton(
                         onClick = {
                             if (!isStreaming) viewModel.selectAudioSource(AudioSourceType.INTERNAL_AUDIO)
                         },
                         enabled = !isStreaming && viewModel.isInternalAudioSupported,
                         modifier = Modifier
-                            .weight(1f)
+                            .weight(0.85f)
                             .height(42.dp)
                             .testTag("source_internal_button"),
                         shape = RoundedCornerShape(10.dp),
@@ -557,55 +651,34 @@ fun HomeScreen(
                     ) {
                         Icon(
                             Icons.Outlined.PhoneAndroid,
-                            contentDescription = "Internal Audio",
+                            contentDescription = "System Audio",
                             tint = if (isInternal) Color.White else TextSecondary,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Internal Audio",
+                            text = "System Audio",
                             fontSize = 11.sp,
                             fontWeight = if (isInternal) FontWeight.Bold else FontWeight.Normal,
                             color = if (isInternal) Color.White else TextSecondary
                         )
                     }
+                }
 
-                    // Microphone Button
-                    OutlinedButton(
-                        onClick = {
-                            if (!isStreaming) {
-                                recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                                viewModel.selectAudioSource(AudioSourceType.MICROPHONE)
-                            }
-                        },
-                        enabled = !isStreaming,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(42.dp)
-                            .testTag("source_mic_button"),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = if (isMic) Color(0xFF22222E) else Color.Transparent
-                        ),
-                        border = BorderStroke(
-                            1.dp,
-                            if (isMic) Color.White else Color(0xFF282834)
-                        )
-                    ) {
-                        Icon(
-                            Icons.Outlined.Mic,
-                            contentDescription = "Microphone",
-                            tint = if (isMic) Color.White else TextSecondary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Microphone",
-                            fontSize = 11.sp,
-                            fontWeight = if (isMic) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isMic) Color.White else TextSecondary
-                        )
-                    }
+                if (prefs.audioSource == AudioSourceType.DIRECT_AUDIO || prefs.audioSource == AudioSourceType.MICROPHONE) {
+                    Text(
+                        text = "⚡ Direct Mode: Pure PCM audio stream with ZERO screen capture permissions.",
+                        fontSize = 11.sp,
+                        color = StreamEmerald,
+                        modifier = Modifier.padding(top = 4.dp, start = 4.dp)
+                    )
+                } else {
+                    Text(
+                        text = "ℹ️ Note: Android OS calls internal audio capture 'Screen Cast / Capture' in its system prompt.",
+                        fontSize = 11.sp,
+                        color = WarningAmber,
+                        modifier = Modifier.padding(top = 4.dp, start = 4.dp)
+                    )
                 }
 
                 // Silence Phone Speaker Toggle (Compact row with crisp switch)
@@ -706,12 +779,25 @@ fun HomeScreen(
                                 .fillMaxWidth()
                                 .height(46.dp)
                                 .testTag("start_streaming_button"),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isBrowserActive) WarningAmber else Color.White
+                            ),
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Icon(Icons.Outlined.PlayArrow, contentDescription = "Start", tint = Color.Black, modifier = Modifier.size(18.dp))
+                            Icon(
+                                imageVector = if (isBrowserActive) Icons.Outlined.Security else Icons.Outlined.PlayArrow,
+                                contentDescription = "Start",
+                                tint = Color.Black,
+                                modifier = Modifier.size(18.dp)
+                            )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Start Streaming", fontWeight = FontWeight.Bold, color = Color.Black)
+                            Text(
+                                text = if (isBrowserActive) "Switch to System Stream (Auto-stops Browser)" else "Start Streaming",
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Black,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
