@@ -137,6 +137,7 @@ fun BrowserScreen(
     val artistName by viewModel.artistName.collectAsState()
     val isSmartArtworkMode by viewModel.isSmartArtworkMode.collectAsState()
     val isLiteMode by viewModel.isLiteMode.collectAsState()
+    val isAdBlockEnabled by viewModel.isAdBlockEnabled.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
     var inputUrlText by remember(currentUrl) { mutableStateOf(currentUrl) }
@@ -404,6 +405,43 @@ fun BrowserScreen(
                         }
                     }
 
+                    // Shield / Ad-Blocker Toggle Button (YouTube Music & Web Ad Free)
+                    Surface(
+                        color = if (isAdBlockEnabled) Color(0xFF1E1B4B) else Color(0xFF16161F),
+                        border = BorderStroke(1.dp, if (isAdBlockEnabled) Color(0xFF818CF8) else Color(0xFF282834)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable {
+                                viewModel.toggleAdBlock()
+                                Toast.makeText(
+                                    context,
+                                    if (!isAdBlockEnabled) "🛡️ Ad Block ON: YT Music & web ads blocked" else "Ad Block OFF",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                            .testTag("toggle_adblock_button")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Security,
+                                contentDescription = "Ad Blocker",
+                                tint = if (isAdBlockEnabled) Color(0xFF818CF8) else Color(0xFF9CA3AF),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = "Shield",
+                                fontSize = 11.sp,
+                                fontWeight = if (isAdBlockEnabled) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isAdBlockEnabled) Color(0xFFA5B4FC) else Color.White
+                            )
+                        }
+                    }
+
                     // Smart Artwork View Toggle ("smallest possible")
                     IconButton(
                         onClick = { viewModel.toggleSmartArtworkMode() },
@@ -557,6 +595,17 @@ fun BrowserScreen(
                         }
 
                         webViewClient = object : WebViewClient() {
+                            override fun shouldInterceptRequest(
+                                view: WebView?,
+                                request: WebResourceRequest?
+                            ): WebResourceResponse? {
+                                val url = request?.url?.toString()
+                                if (viewModel.isAdBlockEnabled.value && AdBlockEngine.shouldBlock(url)) {
+                                    return AdBlockEngine.createEmptyResponse()
+                                }
+                                return super.shouldInterceptRequest(view, request)
+                            }
+
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                 super.onPageStarted(view, url, favicon)
                                 viewModel.setLoading(true)
@@ -580,6 +629,11 @@ fun BrowserScreen(
                                     """.trimIndent(),
                                     null
                                 )
+
+                                // Inject YouTube Music Ad-Skipper & Ad Blocker script if enabled
+                                if (viewModel.isAdBlockEnabled.value) {
+                                    view?.evaluateJavascript(AdBlockEngine.adSkipperScript, null)
+                                }
 
                                 if (viewModel.isLiteMode.value) {
                                     view?.evaluateJavascript(

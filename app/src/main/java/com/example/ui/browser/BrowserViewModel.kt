@@ -60,6 +60,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _isLiteMode = MutableStateFlow(false)
     val isLiteMode: StateFlow<Boolean> = _isLiteMode.asStateFlow()
 
+    // Ad & Telemetry Blocker (Blocks ads, promo modals, and auto-skips YouTube Music video/audio ads)
+    private val _isAdBlockEnabled = MutableStateFlow(true)
+    val isAdBlockEnabled: StateFlow<Boolean> = _isAdBlockEnabled.asStateFlow()
+
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -155,6 +159,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun toggleLiteMode() {
         _isLiteMode.value = !_isLiteMode.value
+    }
+
+    fun toggleAdBlock() {
+        _isAdBlockEnabled.value = !_isAdBlockEnabled.value
     }
 
     fun clearCache(webView: android.webkit.WebView?) {
