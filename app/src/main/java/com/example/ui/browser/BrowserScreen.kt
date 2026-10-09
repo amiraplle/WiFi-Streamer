@@ -50,11 +50,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.ElectricBolt
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Security
@@ -133,6 +136,7 @@ fun BrowserScreen(
     val pageTitle by viewModel.pageTitle.collectAsState()
     val artistName by viewModel.artistName.collectAsState()
     val isSmartArtworkMode by viewModel.isSmartArtworkMode.collectAsState()
+    val isLiteMode by viewModel.isLiteMode.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
     var inputUrlText by remember(currentUrl) { mutableStateOf(currentUrl) }
@@ -227,39 +231,44 @@ fun BrowserScreen(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Modern Address Bar
+                // Modern Address Bar with Security Lock, Quick-Clear, Lite Mode, and Cache Purge
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     // Back button
+                    val canGoBack = webViewRef?.canGoBack() == true
                     IconButton(
-                        onClick = { if (webViewRef?.canGoBack() == true) webViewRef?.goBack() },
-                        modifier = Modifier.size(36.dp)
+                        onClick = { if (canGoBack) webViewRef?.goBack() },
+                        enabled = canGoBack,
+                        modifier = Modifier.size(34.dp)
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                             contentDescription = "Back",
-                            tint = Color.White.copy(alpha = 0.8f),
+                            tint = if (canGoBack) Color.White else Color(0xFF4A4A5A),
                             modifier = Modifier.size(18.dp)
                         )
                     }
 
                     // Forward button
+                    val canGoForward = webViewRef?.canGoForward() == true
                     IconButton(
-                        onClick = { if (webViewRef?.canGoForward() == true) webViewRef?.goForward() },
-                        modifier = Modifier.size(36.dp)
+                        onClick = { if (canGoForward) webViewRef?.goForward() },
+                        enabled = canGoForward,
+                        modifier = Modifier.size(34.dp)
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
                             contentDescription = "Forward",
-                            tint = Color.White.copy(alpha = 0.8f),
+                            tint = if (canGoForward) Color.White else Color(0xFF4A4A5A),
                             modifier = Modifier.size(18.dp)
                         )
                     }
 
-                    // URL Input field
+                    // Upgraded URL Input field with Security indicator and Clear button
+                    val isHttps = currentUrl.startsWith("https://", ignoreCase = true)
                     OutlinedTextField(
                         value = inputUrlText,
                         onValueChange = { inputUrlText = it },
@@ -270,10 +279,10 @@ fun BrowserScreen(
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color(0xFF16161F),
-                            unfocusedContainerColor = Color(0xFF16161F),
+                            focusedContainerColor = Color(0xFF14141E),
+                            unfocusedContainerColor = Color(0xFF14141E),
                             focusedBorderColor = Color(0xFF3B82F6),
-                            unfocusedBorderColor = Color(0xFF282834),
+                            unfocusedBorderColor = Color(0xFF282836),
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White
                         ),
@@ -281,8 +290,16 @@ fun BrowserScreen(
                             Text(
                                 "Search or enter audio URL…",
                                 color = Color(0xFF6E6E82),
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 maxLines = 1
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (isHttps) Icons.Outlined.Lock else Icons.Outlined.LockOpen,
+                                contentDescription = if (isHttps) "Secure HTTPS" else "Standard HTTP",
+                                tint = if (isHttps) StreamEmerald else WarningAmber,
+                                modifier = Modifier.size(14.dp)
                             )
                         },
                         keyboardOptions = KeyboardOptions(
@@ -297,47 +314,163 @@ fun BrowserScreen(
                             }
                         ),
                         trailingIcon = {
-                            if (isLoading) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(14.dp),
-                                    strokeWidth = 2.dp,
-                                    color = Color(0xFF3B82F6)
-                                )
-                            } else {
-                                IconButton(
-                                    onClick = {
-                                        keyboardController?.hide()
-                                        viewModel.navigateTo(inputUrlText)
-                                        webViewRef?.loadUrl(viewModel.currentUrl.value)
-                                    },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Refresh,
-                                        contentDescription = "Go",
-                                        tint = Color.White.copy(alpha = 0.7f),
-                                        modifier = Modifier.size(16.dp)
-                                    )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                modifier = Modifier.padding(end = 4.dp)
+                            ) {
+                                // 1-tap Clear text button
+                                if (inputUrlText.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = { inputUrlText = "" },
+                                        modifier = Modifier.size(24.dp).testTag("browser_clear_url_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Close,
+                                            contentDescription = "Clear address",
+                                            tint = Color(0xFFA0A0B2),
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                    }
+                                }
+
+                                if (isLoading) {
+                                    IconButton(
+                                        onClick = { webViewRef?.stopLoading() },
+                                        modifier = Modifier.size(24.dp).testTag("browser_stop_loading_button")
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(13.dp),
+                                            strokeWidth = 2.dp,
+                                            color = Color(0xFF3B82F6)
+                                        )
+                                    }
+                                } else {
+                                    val isModified = inputUrlText.trim() != currentUrl.trim()
+                                    IconButton(
+                                        onClick = {
+                                            keyboardController?.hide()
+                                            viewModel.navigateTo(inputUrlText)
+                                            webViewRef?.loadUrl(viewModel.currentUrl.value)
+                                        },
+                                        modifier = Modifier.size(24.dp).testTag("browser_go_refresh_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isModified) Icons.AutoMirrored.Outlined.ArrowForward else Icons.Outlined.Refresh,
+                                            contentDescription = if (isModified) "Go" else "Reload",
+                                            tint = if (isModified) Color(0xFF60A5FA) else Color.White.copy(alpha = 0.7f),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
                     )
 
+                    // Lite Mode Toggle Button (Simplified, Audio-First Web Rendering)
+                    Surface(
+                        color = if (isLiteMode) Color(0xFF042F2E) else Color(0xFF16161F),
+                        border = BorderStroke(1.dp, if (isLiteMode) StreamEmerald else Color(0xFF282834)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable {
+                                viewModel.toggleLiteMode()
+                                Toast.makeText(
+                                    context,
+                                    if (!isLiteMode) "⚡ Lite Mode ON: Audio-first, heavy images blocked" else "Full Web Mode ON",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                            .testTag("toggle_lite_mode_button")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.ElectricBolt,
+                                contentDescription = "Lite Mode",
+                                tint = if (isLiteMode) StreamEmerald else Color(0xFF9CA3AF),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = "Lite",
+                                fontSize = 11.sp,
+                                fontWeight = if (isLiteMode) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isLiteMode) StreamEmerald else Color.White
+                            )
+                        }
+                    }
+
                     // Smart Artwork View Toggle ("smallest possible")
                     IconButton(
                         onClick = { viewModel.toggleSmartArtworkMode() },
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(34.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (isSmartArtworkMode) Color(0xFF3B82F6).copy(alpha = 0.25f) else Color.Transparent)
+                            .background(if (isSmartArtworkMode) Color(0xFF3B82F6).copy(alpha = 0.25f) else Color(0xFF16161F))
                             .testTag("toggle_artwork_mode_button")
                     ) {
                         Icon(
                             imageVector = if (isSmartArtworkMode) Icons.Outlined.Language else Icons.Outlined.ViewCompact,
                             contentDescription = if (isSmartArtworkMode) "Web View" else "Smart Artwork",
                             tint = if (isSmartArtworkMode) Color(0xFF60A5FA) else Color.White.copy(alpha = 0.8f),
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(17.dp)
                         )
+                    }
+
+                    // Clear Cache Action
+                    IconButton(
+                        onClick = {
+                            viewModel.clearCache(webViewRef)
+                            Toast.makeText(context, "Browser cache cleared", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF16161F))
+                            .testTag("browser_clear_cache_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.DeleteOutline,
+                            contentDescription = "Clear Cache",
+                            tint = Color(0xFFA0A0B2),
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+                }
+
+                // Lite Mode Active Indicator Banner
+                if (isLiteMode) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        color = Color(0xFF042F2E),
+                        border = BorderStroke(1.dp, StreamEmerald.copy(alpha = 0.4f)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.ElectricBolt,
+                                contentDescription = null,
+                                tint = StreamEmerald,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Text(
+                                text = "⚡ Lite Mode Active: High-speed rendering • Heavy images blocked • Audio playback protected",
+                                color = StreamEmerald,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
 
@@ -414,7 +547,8 @@ fun BrowserScreen(
                             javaScriptEnabled = true
                             domStorageEnabled = true
                             mediaPlaybackRequiresUserGesture = false
-                            loadsImagesAutomatically = true
+                            loadsImagesAutomatically = !isLiteMode
+                            blockNetworkImage = isLiteMode
                             useWideViewPort = true
                             loadWithOverviewMode = true
                             databaseEnabled = true
@@ -446,6 +580,23 @@ fun BrowserScreen(
                                     """.trimIndent(),
                                     null
                                 )
+
+                                if (viewModel.isLiteMode.value) {
+                                    view?.evaluateJavascript(
+                                        """
+                                        (function() {
+                                            var existing = document.getElementById('c3_lite_mode_style');
+                                            if (!existing) {
+                                                var style = document.createElement('style');
+                                                style.id = 'c3_lite_mode_style';
+                                                style.innerHTML = 'img, video:not([controls]), .ad-container, [class*="banner"], [class*="sponsor"] { display: none !important; }';
+                                                document.head.appendChild(style);
+                                            }
+                                        })();
+                                        """.trimIndent(),
+                                        null
+                                    )
+                                }
                             }
                         }
 
@@ -464,6 +615,35 @@ fun BrowserScreen(
                 },
                 update = { webView ->
                     webViewRef = webView
+                    val lite = isLiteMode
+                    webView.settings.loadsImagesAutomatically = !lite
+                    webView.settings.blockNetworkImage = lite
+                    if (lite) {
+                        webView.evaluateJavascript(
+                            """
+                            (function() {
+                                var existing = document.getElementById('c3_lite_mode_style');
+                                if (!existing) {
+                                    var style = document.createElement('style');
+                                    style.id = 'c3_lite_mode_style';
+                                    style.innerHTML = 'img, video:not([controls]), .ad-container, [class*="banner"], [class*="sponsor"] { display: none !important; }';
+                                    document.head.appendChild(style);
+                                }
+                            })();
+                            """.trimIndent(),
+                            null
+                        )
+                    } else {
+                        webView.evaluateJavascript(
+                            """
+                            (function() {
+                                var existing = document.getElementById('c3_lite_mode_style');
+                                if (existing) { existing.remove(); }
+                            })();
+                            """.trimIndent(),
+                            null
+                        )
+                    }
                 },
                 modifier = Modifier
                     .fillMaxSize()
@@ -766,20 +946,10 @@ fun BrowserScreen(
                             )
                         }
                     } else {
-                        // START BUTTON (Handles Safety State Checker - Zero Screen Capture)
+                        // START BUTTON (Pure Digital Browser Stream - Zero Screen Capture, Zero Mic)
                         Button(
                             onClick = {
-                                val hasAudioPermission = ContextCompat.checkSelfPermission(
-                                    context,
-                                    android.Manifest.permission.RECORD_AUDIO
-                                ) == PackageManager.PERMISSION_GRANTED
-
-                                if (!hasAudioPermission) {
-                                    recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                                    return@Button
-                                }
-
-                                // Stream directly without any screen capture prompts
+                                // Stream directly without any microphone or screen capture prompts
                                 viewModel.startStreaming(context, 0, null)
                             },
                             modifier = Modifier

@@ -168,7 +168,7 @@ class AudioCaptureManager(
                 } else {
                     null
                 }
-            } else {
+            } else if (sourceType == AudioSourceType.MICROPHONE) {
                 val targetDriverBufferBytes = (sampleRate * format.frameSizeBytes * 500) / 1000
                 try {
                     AudioRecord(
@@ -182,6 +182,11 @@ class AudioCaptureManager(
                     Log.w(TAG, "Could not create hardware AudioRecord: ${e.message}")
                     null
                 }
+            } else {
+                // GHOST_PLAYER, BROWSER_STREAM, or DIRECT_AUDIO:
+                // NEVER open phone microphone! Zero room noise!
+                Log.i(TAG, "Audio source is pure digital ($sourceType) — physical microphone bypassed completely.")
+                null
             }
 
             val isHardwareReady = audioRecord != null && audioRecord?.state == AudioRecord.STATE_INITIALIZED
@@ -244,7 +249,7 @@ class AudioCaptureManager(
             // Get a reusable buffer from queue or allocate fallback if starved
             val buffer = bufferQueue.poll() ?: ByteArray(bufferSize)
 
-            val bytesRead = record.read(buffer, 0, buffer.size, AudioRecord.READ_NON_BLOCKING)
+            val bytesRead = record.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
 
             if (bytesRead > 0) {
                 val finalBuffer: ByteArray
@@ -469,6 +474,36 @@ class AudioCaptureManager(
         return false
     }
 
+    @Volatile
+    private var lastExternalPcmTimeMs: Long = 0L
+
+    /**
+     * Feeds digital PCM audio directly into the transmitter.
+     * Bypasses all microphone hardware.
+     */
+    fun feedExternalPcm(buffer: ByteArray, length: Int, isSilent: Boolean = false) {
+        if (!isRunning.get() || length <= 0) return
+        lastExternalPcmTimeMs = System.currentTimeMillis()
+
+        if (!bitPerfectMode && !isSilent) {
+            val copy = buffer.copyOf(length)
+            PcmAudioProcessor.processInPlace(
+                buffer = copy,
+                length = length,
+                bitDepth = currentFormat.bitDepth,
+                volumePercent = volumePercent,
+                isMuted = isMuted,
+                dspEngine = dspEngine,
+                channels = currentFormat.channelCount,
+                bitPerfectMode = bitPerfectMode,
+                ditherEnabled = ditherEnabled
+            )
+            onAudioChunkReady(copy, length, false)
+        } else {
+            onAudioChunkReady(buffer, length, isSilent)
+        }
+    }
+
     fun stopCapture() {
         isRunning.set(false)
         captureThread?.interrupt()
@@ -484,19 +519,21 @@ class AudioCaptureManager(
     }
 
     private fun directStreamGeneratorLoop(format: AudioStreamFormat, chunkSize: Int) {
-        val intervalMs = ((chunkSize.toLong() * 1000L) / (format.sampleRate * format.frameSizeBytes)).coerceIn(5L, 50L)
+        val intervalMs = ((chunkSize.toLong() * 1000L) / (format.sampleRate * format.frameSizeBytes)).coerceIn(10L, 50L)
         val chunk = ByteArray(chunkSize)
         while (isRunning.get()) {
-            val start = System.currentTimeMillis()
-            onAudioChunkReady(chunk, chunkSize, true)
-            val elapsed = System.currentTimeMillis() - start
-            val sleepTime = intervalMs - elapsed
-            if (sleepTime > 0) {
-                try {
-                    Thread.sleep(sleepTime)
-                } catch (_: InterruptedException) {
-                    break
-                }
+            val now = System.currentTimeMillis()
+            // If external digital PCM is actively playing, pause keep-alive silence
+            val isReceivingExternalPcm = (now - lastExternalPcmTimeMs) < 250L
+
+            if (!isReceivingExternalPcm && keepAliveSilence) {
+                onAudioChunkReady(chunk, chunkSize, true)
+            }
+
+            try {
+                Thread.sleep(intervalMs)
+            } catch (_: InterruptedException) {
+                break
             }
         }
     }

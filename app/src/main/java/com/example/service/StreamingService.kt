@@ -198,8 +198,14 @@ class StreamingService : Service() {
                 if (code != 0) projectionResultCode = code
                 if (data != null) projectionIntentData = data
 
-                startForegroundWithNotification()
-                startStreamingPipeline()
+                val prefs = AppContainer.getPreferences(this).userPreferences.value
+                val effectiveSource = when {
+                    activeStreamSource == "browser" -> AudioSourceType.BROWSER_STREAM
+                    else -> prefs.audioSource
+                }
+
+                startForegroundWithNotification(effectiveSource)
+                startStreamingPipeline(effectiveSource)
             }
             ACTION_STOP -> {
                 stopStreaming()
@@ -232,10 +238,10 @@ class StreamingService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun startForegroundWithNotification() {
+    private fun startForegroundWithNotification(effectiveSource: AudioSourceType) {
         val notification = buildNotification(
             title = getString(R.string.status_connecting),
-            content = "Preparing audio streaming pipeline…"
+            content = "Streaming audio to ESP32-C3…"
         )
 
         val hasProjection = projectionIntentData != null && projectionResultCode != 0
@@ -250,10 +256,12 @@ class StreamingService : Service() {
             } else {
                 0
             }
-            if (hasMicPermission) {
+            // ONLY declare MICROPHONE foreground type if user explicitly selected MICROPHONE
+            if (effectiveSource == AudioSourceType.MICROPHONE && hasMicPermission) {
                 type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             }
-            if (hasProjection && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // ONLY declare MEDIA_PROJECTION foreground type if user explicitly selected INTERNAL_AUDIO and token is valid
+            if (effectiveSource == AudioSourceType.INTERNAL_AUDIO && hasProjection && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             }
             type
@@ -285,7 +293,7 @@ class StreamingService : Service() {
         }
     }
 
-    private fun startStreamingPipeline() {
+    private fun startStreamingPipeline(effectiveSource: AudioSourceType) {
         isStopping.set(false)
         reconnectAttempts = 0
         sessionStartTime = System.currentTimeMillis()
@@ -305,11 +313,6 @@ class StreamingService : Service() {
         captureManager?.ditherEnabled = prefs.ditherEnabled
         captureManager?.keepAliveSilence = prefs.keepAliveSilence
         pacedTransmitter?.ratePacingEnabled = prefs.ratePacing
-
-        val effectiveSource = when {
-            activeStreamSource == "browser" -> AudioSourceType.BROWSER_STREAM
-            else -> prefs.audioSource
-        }
 
         _telemetry.value = StreamTelemetry(
             streamingState = StreamingState.CONNECTING,

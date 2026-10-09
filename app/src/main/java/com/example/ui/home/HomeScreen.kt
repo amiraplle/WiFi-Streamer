@@ -14,10 +14,12 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +37,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.Audiotrack
 import androidx.compose.material.icons.outlined.Check
@@ -66,6 +69,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -81,6 +86,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -588,96 +594,96 @@ fun HomeScreen(
                     }
                 }
 
-                // Audio Source Selector (Direct Audio vs System Audio)
+                // Audio Source Selector: System Audio (Default) vs Microphone
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    val isDirect = prefs.audioSource == AudioSourceType.DIRECT_AUDIO || prefs.audioSource == AudioSourceType.MICROPHONE
                     val isInternal = prefs.audioSource == AudioSourceType.INTERNAL_AUDIO
+                    val isMic = prefs.audioSource == AudioSourceType.MICROPHONE || prefs.audioSource == AudioSourceType.DIRECT_AUDIO
 
-                    // Direct Audio Button (Default, Zero Screen Capture)
-                    OutlinedButton(
-                        onClick = {
-                            if (!isStreaming) viewModel.selectAudioSource(AudioSourceType.DIRECT_AUDIO)
-                        },
-                        enabled = !isStreaming,
-                        modifier = Modifier
-                            .weight(1.15f)
-                            .height(42.dp)
-                            .testTag("source_direct_button"),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = if (isDirect) Color(0xFF22222E) else Color.Transparent
-                        ),
-                        border = BorderStroke(
-                            1.dp,
-                            if (isDirect) Color.White else Color(0xFF282834)
-                        )
-                    ) {
-                        Icon(
-                            Icons.Outlined.Audiotrack,
-                            contentDescription = "Direct Audio",
-                            tint = if (isDirect) Color.White else TextSecondary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Direct Audio (No Capture Prompt)",
-                            fontSize = 11.sp,
-                            fontWeight = if (isDirect) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isDirect) Color.White else TextSecondary
-                        )
-                    }
-
-                    // System Audio Button
+                    // 1. System Audio (Android OS Screen Cast) - Default
                     OutlinedButton(
                         onClick = {
                             if (!isStreaming) viewModel.selectAudioSource(AudioSourceType.INTERNAL_AUDIO)
                         },
                         enabled = !isStreaming && viewModel.isInternalAudioSupported,
                         modifier = Modifier
-                            .weight(0.85f)
-                            .height(42.dp)
+                            .weight(1f)
+                            .height(44.dp)
                             .testTag("source_internal_button"),
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = if (isInternal) Color(0xFF22222E) else Color.Transparent
+                            containerColor = if (isInternal) Color(0xFF1E293B) else Color.Transparent
                         ),
                         border = BorderStroke(
                             1.dp,
-                            if (isInternal) Color.White else Color(0xFF282834)
+                            if (isInternal) Color(0xFF60A5FA) else Color(0xFF282834)
                         )
                     ) {
                         Icon(
                             Icons.Outlined.PhoneAndroid,
                             contentDescription = "System Audio",
-                            tint = if (isInternal) Color.White else TextSecondary,
+                            tint = if (isInternal) Color(0xFF60A5FA) else TextSecondary,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "System Audio",
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             fontWeight = if (isInternal) FontWeight.Bold else FontWeight.Normal,
                             color = if (isInternal) Color.White else TextSecondary
                         )
                     }
+
+                    // 2. Microphone / Line-In
+                    OutlinedButton(
+                        onClick = {
+                            if (!isStreaming) viewModel.selectAudioSource(AudioSourceType.MICROPHONE)
+                        },
+                        enabled = !isStreaming,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .testTag("source_mic_button"),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (isMic) Color(0xFF22222E) else Color.Transparent
+                        ),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isMic) Color.White else Color(0xFF282834)
+                        )
+                    ) {
+                        Icon(
+                            Icons.Outlined.Mic,
+                            contentDescription = "Mic",
+                            tint = if (isMic) Color.White else TextSecondary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Microphone",
+                            fontSize = 12.sp,
+                            fontWeight = if (isMic) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isMic) Color.White else TextSecondary
+                        )
+                    }
                 }
 
-                if (prefs.audioSource == AudioSourceType.DIRECT_AUDIO || prefs.audioSource == AudioSourceType.MICROPHONE) {
+                if (prefs.audioSource == AudioSourceType.INTERNAL_AUDIO) {
                     Text(
-                        text = "⚡ Direct Mode: Pure PCM audio stream with ZERO screen capture permissions.",
+                        text = "📱 System Audio: Transmits audio from music and media apps playing on your phone.",
                         fontSize = 11.sp,
                         color = StreamEmerald,
-                        modifier = Modifier.padding(top = 4.dp, start = 4.dp)
+                        modifier = Modifier.padding(top = 2.dp, start = 4.dp)
                     )
                 } else {
                     Text(
-                        text = "ℹ️ Note: Android OS calls internal audio capture 'Screen Cast / Capture' in its system prompt.",
+                        text = "🎤 Microphone: Transmits ambient room audio through the physical phone microphone.",
                         fontSize = 11.sp,
                         color = WarningAmber,
-                        modifier = Modifier.padding(top = 4.dp, start = 4.dp)
+                        modifier = Modifier.padding(top = 2.dp, start = 4.dp)
                     )
                 }
 
@@ -733,7 +739,7 @@ fun HomeScreen(
                         ) {
                             Icon(Icons.Outlined.Stop, contentDescription = "Stop", tint = Color.Black, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Stop", fontWeight = FontWeight.Bold, color = Color.Black)
+                            Text("Stop Stream", fontWeight = FontWeight.Bold, color = Color.Black)
                         }
 
                         IconButton(
@@ -754,17 +760,17 @@ fun HomeScreen(
                     } else {
                         Button(
                             onClick = {
-                                val hasAudioPermission = ContextCompat.checkSelfPermission(
-                                    context,
-                                    android.Manifest.permission.RECORD_AUDIO
-                                ) == PackageManager.PERMISSION_GRANTED
-
-                                if (!hasAudioPermission) {
-                                    recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                                    return@Button
-                                }
-
                                 if (prefs.audioSource == AudioSourceType.INTERNAL_AUDIO) {
+                                    val hasAudioPermission = ContextCompat.checkSelfPermission(
+                                        context,
+                                        android.Manifest.permission.RECORD_AUDIO
+                                    ) == PackageManager.PERMISSION_GRANTED
+
+                                    if (!hasAudioPermission) {
+                                        recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                                        return@Button
+                                    }
+
                                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                                         val mediaProjectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                                         mediaProjectionLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
@@ -772,6 +778,16 @@ fun HomeScreen(
                                         Toast.makeText(context, "Internal audio requires Android 10+", Toast.LENGTH_SHORT).show()
                                     }
                                 } else {
+                                    // Microphone mode
+                                    val hasAudioPermission = ContextCompat.checkSelfPermission(
+                                        context,
+                                        android.Manifest.permission.RECORD_AUDIO
+                                    ) == PackageManager.PERMISSION_GRANTED
+
+                                    if (!hasAudioPermission) {
+                                        recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                                        return@Button
+                                    }
                                     viewModel.startStreaming(context, 0, null)
                                 }
                             },
@@ -792,7 +808,11 @@ fun HomeScreen(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (isBrowserActive) "Switch to System Stream (Auto-stops Browser)" else "Start Streaming",
+                                text = if (isBrowserActive) {
+                                    "Switch Stream (Auto-stops Browser)"
+                                } else {
+                                    "Start Streaming"
+                                },
                                 fontWeight = FontWeight.Bold,
                                 color = Color.Black,
                                 maxLines = 1,

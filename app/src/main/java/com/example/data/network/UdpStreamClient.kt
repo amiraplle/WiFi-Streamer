@@ -45,6 +45,7 @@ class UdpStreamClient(
     // Pre-allocated reusable packet to avoid heap thrashing in the audio loop
     private val packetBuffer = ByteArray(MAX_UDP_PAYLOAD)
     private var datagramPacket: DatagramPacket? = null
+    private var currentFormat: AudioStreamFormat = AudioStreamFormat.FORMAT_44K_16BIT_STEREO
 
     @Synchronized
     fun connectAndStart(
@@ -55,6 +56,7 @@ class UdpStreamClient(
         qosEnabled: Boolean = true
     ): Boolean {
         isManuallyStopped.set(false)
+        currentFormat = format
         onStateChanged(StreamingState.CONNECTING, null)
 
         return try {
@@ -115,10 +117,13 @@ class UdpStreamClient(
         val addr = targetAddress ?: return false
         if (!isConnected.get() || s.isClosed) return false
 
+        val frameSize = currentFormat.frameSizeBytes.coerceAtLeast(1)
+        val maxAlignedPayload = (MAX_UDP_PAYLOAD / frameSize) * frameSize
+
         return try {
             var sent = 0
             while (sent < length) {
-                val chunkSize = (length - sent).coerceAtMost(MAX_UDP_PAYLOAD)
+                val chunkSize = (length - sent).coerceAtMost(maxAlignedPayload)
                 val packet = DatagramPacket(buffer, offset + sent, chunkSize, addr, targetPort)
                 s.send(packet)
                 sent += chunkSize

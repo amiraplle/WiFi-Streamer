@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.AppContainer
 import com.example.domain.safety.ActiveStreamProcess
 import com.example.domain.safety.StreamSafetyCoordinator
+import com.example.model.AudioSourceType
 import com.example.model.AudioStreamFormat
 import com.example.model.CaptureStatus
 import com.example.model.StreamTelemetry
@@ -54,6 +55,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     // Mode: "Compact Smart Artwork" vs "Full Web Browser"
     private val _isSmartArtworkMode = MutableStateFlow(false)
     val isSmartArtworkMode: StateFlow<Boolean> = _isSmartArtworkMode.asStateFlow()
+
+    // Lite Mode (Audio-First, Lightweight Reader / Data-Saver)
+    private val _isLiteMode = MutableStateFlow(false)
+    val isLiteMode: StateFlow<Boolean> = _isLiteMode.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -146,6 +151,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun toggleSmartArtworkMode() {
         _isSmartArtworkMode.value = !_isSmartArtworkMode.value
+    }
+
+    fun toggleLiteMode() {
+        _isLiteMode.value = !_isLiteMode.value
+    }
+
+    fun clearCache(webView: android.webkit.WebView?) {
+        webView?.clearCache(true)
+        android.webkit.WebStorage.getInstance().deleteAllData()
     }
 
     fun dismissSafetyNotice() {
