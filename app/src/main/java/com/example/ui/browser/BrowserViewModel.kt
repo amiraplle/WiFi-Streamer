@@ -170,6 +170,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         android.webkit.WebStorage.getInstance().deleteAllData()
     }
 
+    fun feedAudioPcm(bytes: ByteArray) {
+        val service = StreamingService.instance
+        if (service != null && service.telemetry.value.streamingState == StreamingState.STREAMING) {
+            service.feedExternalPcm(bytes)
+        }
+    }
+
     fun dismissSafetyNotice() {
         StreamSafetyCoordinator.dismissNotice()
     }

@@ -532,6 +532,10 @@ class StreamingService : Service() {
         _telemetry.value = _telemetry.value.copy(isMuted = muted)
     }
 
+    fun feedExternalPcm(bytes: ByteArray) {
+        captureManager?.feedExternalPcm(bytes, bytes.size, isSilent = false)
+    }
+
     fun updateDspSettings(prefs: UserPreferences) {
         captureManager?.dspEngine?.apply {
             isEnabled = prefs.dspEnabled

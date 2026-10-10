@@ -165,6 +165,7 @@ fun HomeScreen(
 
     val isStreaming = telemetry.streamingState == StreamingState.STREAMING
     val isConnecting = telemetry.streamingState == StreamingState.CONNECTING || telemetry.streamingState == StreamingState.RECONNECTING
+    val isBrowserActive = activeSafetyProcess == ActiveStreamProcess.BROWSER_STREAM && (isStreaming || isConnecting)
 
     val statusColor by animateColorAsState(
         targetValue = when (telemetry.streamingState) {
@@ -365,6 +366,37 @@ fun HomeScreen(
                             )
                         }
                     }
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    // Find / Scan Local Devices button
+                    Surface(
+                        color = Color(0xFF1B1B24),
+                        border = BorderStroke(1.dp, Color(0xFF2C2C3A)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onNavigateToReceivers() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Refresh,
+                                contentDescription = null,
+                                tint = Color(0xFF60A5FA),
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "Find Devices",
+                                color = Color(0xFF93C5FD),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -384,61 +416,6 @@ fun HomeScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Safety State Interlock Banner (Guarantees Single-Process Isolation)
-                val isBrowserActive = activeSafetyProcess == ActiveStreamProcess.BROWSER_STREAM && (isStreaming || isConnecting)
-                val isSystemActive = activeSafetyProcess == ActiveStreamProcess.SYSTEM_STREAM && (isStreaming || isConnecting)
-
-                Surface(
-                    color = when {
-                        isSystemActive -> Color(0xFF052E16)
-                        isBrowserActive -> Color(0xFF3B1D08)
-                        else -> Color(0xFF14141E)
-                    },
-                    border = BorderStroke(
-                        1.dp,
-                        when {
-                            isSystemActive -> Color(0xFF22C55E).copy(alpha = 0.5f)
-                            isBrowserActive -> Color(0xFFF59E0B).copy(alpha = 0.5f)
-                            else -> Color(0xFF28283A)
-                        }
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Security,
-                            contentDescription = null,
-                            tint = when {
-                                isSystemActive -> Color(0xFF4ADE80)
-                                isBrowserActive -> Color(0xFFFBBF24)
-                                else -> Color(0xFF9CA3AF)
-                            },
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Text(
-                            text = when {
-                                isSystemActive -> "ACTIVE: System Audio Capture • [Safety Lock: Browser Stream OFF]"
-                                isBrowserActive -> "INTERLOCK: Browser Stream Active • Starting here auto-kills Browser"
-                                else -> "SAFETY STATE CHECKER: Single-Process Isolation Armed"
-                            },
-                            color = when {
-                                isSystemActive -> Color(0xFF4ADE80)
-                                isBrowserActive -> Color(0xFFFBBF24)
-                                else -> Color(0xFF9CA3AF)
-                            },
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
                 // Compact Glowing Visualizer Disc
                 Box(
                     modifier = Modifier

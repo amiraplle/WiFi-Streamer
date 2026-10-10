@@ -1,9 +1,15 @@
 package com.example.ui.receivers
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -95,6 +101,29 @@ fun ReceiversScreen(
 
     val phoneIp = remember { NetworkUtils.getLocalIpAddress(context) ?: "Checking Wi-Fi..." }
 
+    val discoveryPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
+    } else {
+        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+
+    val requestDiscoveryPermissionsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        viewModel.startScan()
+    }
+
+    val initiateScan: () -> Unit = {
+        val hasPermissions = discoveryPermissions.all { perm ->
+            ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
+        }
+        if (hasPermissions) {
+            viewModel.startScan()
+        } else {
+            requestDiscoveryPermissionsLauncher.launch(discoveryPermissions)
+        }
+    }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -131,7 +160,7 @@ fun ReceiversScreen(
                 }
                 IconButton(
                     onClick = {
-                        if (isScanning) viewModel.stopScan() else viewModel.startScan()
+                        if (isScanning) viewModel.stopScan() else initiateScan()
                     },
                     modifier = Modifier.testTag("scan_refresh_button")
                 ) {
