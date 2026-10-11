@@ -14,6 +14,7 @@ import android.media.VolumeProvider
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -63,6 +64,7 @@ class StreamingService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var mediaProjection: MediaProjection? = null
+    private var mediaSession: MediaSession? = null
 
     // Lock-free ring buffer (128 KB = ~370ms of 44.1kHz 16-bit stereo PCM)
     private val ringBuffer = AudioRingBuffer(128 * 1024)
@@ -114,6 +116,40 @@ class StreamingService : Service() {
             "C3AudioStreamer:LowLatencyWifiLock"
         ).apply {
             setReferenceCounted(false)
+        }
+
+        // Setup system MediaSession to guarantee foreground audio playback state during screen lock
+        try {
+            mediaSession = MediaSession(this, "C3AudioStreamingSession").apply {
+                setCallback(object : MediaSession.Callback() {
+                    override fun onPlay() {
+                        val prefsRepo = AppContainer.getPreferences(this@StreamingService)
+                        prefsRepo.setMuted(false)
+                        setMuted(false)
+                    }
+                    override fun onPause() {
+                        val prefsRepo = AppContainer.getPreferences(this@StreamingService)
+                        prefsRepo.setMuted(true)
+                        setMuted(true)
+                    }
+                    override fun onStop() {
+                        stopStreaming()
+                    }
+                })
+                val state = PlaybackState.Builder()
+                    .setActions(
+                        PlaybackState.ACTION_PLAY or
+                        PlaybackState.ACTION_PAUSE or
+                        PlaybackState.ACTION_STOP or
+                        PlaybackState.ACTION_PLAY_PAUSE
+                    )
+                    .setState(PlaybackState.STATE_PLAYING, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+                    .build()
+                setPlaybackState(state)
+                isActive = true
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "MediaSession init warning: ${e.message}")
         }
 
         udpClient = UdpStreamClient(
@@ -750,6 +786,11 @@ class StreamingService : Service() {
 
     override fun onDestroy() {
         stopStreaming()
+        try {
+            mediaSession?.isActive = false
+            mediaSession?.release()
+            mediaSession = null
+        } catch (_: Exception) {}
         val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         networkCallback?.let {
             try {

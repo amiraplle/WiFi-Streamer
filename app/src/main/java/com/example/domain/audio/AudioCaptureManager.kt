@@ -524,14 +524,16 @@ class AudioCaptureManager(
         while (isRunning.get()) {
             val now = System.currentTimeMillis()
             // If external digital PCM is actively playing, pause keep-alive silence
-            val isReceivingExternalPcm = (now - lastExternalPcmTimeMs) < 250L
+            val isReceivingExternalPcm = (now - lastExternalPcmTimeMs) < 1500L
 
-            if (!isReceivingExternalPcm && keepAliveSilence) {
+            // For BROWSER_STREAM, PacedAudioTransmitter already transmits paced comfort silence
+            // when ringBuffer runs dry. Do not pollute the ring buffer with fake silence chunks!
+            if (!isReceivingExternalPcm && keepAliveSilence && currentSource != AudioSourceType.BROWSER_STREAM) {
                 onAudioChunkReady(chunk, chunkSize, true)
             }
 
             try {
-                Thread.sleep(intervalMs)
+                Thread.sleep(if (currentSource == AudioSourceType.BROWSER_STREAM) 100L else intervalMs)
             } catch (_: InterruptedException) {
                 break
             }

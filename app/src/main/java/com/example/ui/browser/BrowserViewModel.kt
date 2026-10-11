@@ -3,6 +3,14 @@ package com.example.ui.browser
 import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.view.ViewGroup
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.AppContainer
@@ -75,6 +83,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         MusicQuickLink("Bandcamp", "https://bandcamp.com", "💿", "Direct Artist Audio")
     )
 
+    private var persistentWebView: WebView? = null
+
     init {
         // Poll service telemetry flow periodically when service is alive
         viewModelScope.launch {
@@ -102,8 +112,117 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /**
+     * Obtains the persistent singleton WebView instance.
+     * Retaining the WebView inside the ViewModel prevents it from being destroyed
+     * when navigating between Compose screens (Home, Receivers, Browser, Settings),
+     * ensuring audio playback continues uninterrupted without page reloads!
+     */
+    fun getOrCreateWebView(context: Context): WebView {
+        if (persistentWebView == null) {
+            persistentWebView = WebView(context).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                settings.apply {
+                    javaScriptEnabled = true
+                    domStorageEnabled = true
+                    mediaPlaybackRequiresUserGesture = false
+                    loadsImagesAutomatically = !isLiteMode.value
+                    blockNetworkImage = isLiteMode.value
+                    useWideViewPort = true
+                    loadWithOverviewMode = true
+                    databaseEnabled = true
+                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                    cacheMode = WebSettings.LOAD_DEFAULT
+                    allowFileAccess = true
+                    allowContentAccess = true
+                }
+
+                // Attach digital audio capture bridge
+                addJavascriptInterface(
+                    BrowserAudioBridge { pcmBytes ->
+                        feedAudioPcm(pcmBytes)
+                    },
+                    "C3AudioBridge"
+                )
+
+                webViewClient = object : WebViewClient() {
+                    override fun shouldInterceptRequest(
+                        view: WebView?,
+                        request: WebResourceRequest?
+                    ): WebResourceResponse? {
+                        val url = request?.url?.toString()
+                        if (isAdBlockEnabled.value && AdBlockEngine.shouldBlock(url)) {
+                            return AdBlockEngine.createEmptyResponse()
+                        }
+                        return super.shouldInterceptRequest(view, request)
+                    }
+
+                    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                        super.onPageStarted(view, url, favicon)
+                        setLoading(true)
+                        if (isAdBlockEnabled.value) {
+                            view?.evaluateJavascript(AdBlockEngine.adSkipperScript, null)
+                        }
+                        val rate = userPreferences.value.sampleRate
+                        view?.evaluateJavascript(BrowserAudioEngine.getScript(rate), null)
+                    }
+
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        setLoading(false)
+                        val title = view?.title ?: ""
+                        val current = url ?: ""
+                        setPageInfo(title, current)
+
+                        val rate = userPreferences.value.sampleRate
+                        view?.evaluateJavascript(BrowserAudioEngine.getScript(rate), null)
+
+                        if (isAdBlockEnabled.value) {
+                            view?.evaluateJavascript(AdBlockEngine.adSkipperScript, null)
+                        }
+
+                        if (isLiteMode.value) {
+                            view?.evaluateJavascript(
+                                """
+                                (function() {
+                                    var existing = document.getElementById('c3_lite_mode_style');
+                                    if (!existing) {
+                                        var style = document.createElement('style');
+                                        style.id = 'c3_lite_mode_style';
+                                        style.innerHTML = 'img, video:not([controls]), .ad-container, [class*="banner"], [class*="sponsor"] { display: none !important; }';
+                                        document.head.appendChild(style);
+                                    }
+                                })();
+                                """.trimIndent(),
+                                null
+                            )
+                        }
+                    }
+                }
+
+                webChromeClient = object : WebChromeClient() {
+                    override fun onReceivedTitle(view: WebView?, title: String?) {
+                        super.onReceivedTitle(view, title)
+                        if (!title.isNullOrBlank()) {
+                            setPageInfo(title, view?.url ?: "")
+                        }
+                    }
+                }
+
+                loadUrl(currentUrl.value)
+            }
+        }
+        return persistentWebView!!
+    }
+
     fun startStreaming(context: Context, resultCode: Int = 0, data: Intent? = null) {
         StreamSafetyCoordinator.startBrowserStream(context, resultCode, data)
+        // Ensure browser audio capture is active at target sample rate
+        val rate = userPreferences.value.sampleRate
+        persistentWebView?.evaluateJavascript(BrowserAudioEngine.getScript(rate), null)
     }
 
     fun stopStreaming(context: Context) {
@@ -132,6 +251,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             url
         }
         _currentUrl.value = formatted
+        persistentWebView?.loadUrl(formatted)
     }
 
     fun setPageInfo(title: String, url: String, artwork: String? = null) {
@@ -158,15 +278,21 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun toggleLiteMode() {
-        _isLiteMode.value = !_isLiteMode.value
+        val newLite = !_isLiteMode.value
+        _isLiteMode.value = newLite
+        persistentWebView?.settings?.apply {
+            loadsImagesAutomatically = !newLite
+            blockNetworkImage = newLite
+        }
     }
 
     fun toggleAdBlock() {
         _isAdBlockEnabled.value = !_isAdBlockEnabled.value
     }
 
-    fun clearCache(webView: android.webkit.WebView?) {
-        webView?.clearCache(true)
+    fun clearCache(webView: WebView?) {
+        val target = webView ?: persistentWebView
+        target?.clearCache(true)
         android.webkit.WebStorage.getInstance().deleteAllData()
     }
 
@@ -179,5 +305,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun dismissSafetyNotice() {
         StreamSafetyCoordinator.dismissNotice()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        try {
+            persistentWebView?.destroy()
+            persistentWebView = null
+        } catch (_: Exception) {}
     }
 }

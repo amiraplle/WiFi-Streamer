@@ -46,9 +46,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
@@ -261,13 +264,13 @@ fun BrowserScreen(
                     IconButton(
                         onClick = { if (canGoBack) webViewRef?.goBack() },
                         enabled = canGoBack,
-                        modifier = Modifier.size(34.dp)
+                        modifier = Modifier.size(36.dp)
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                             contentDescription = "Back",
-                            tint = if (canGoBack) Color.White else Color(0xFF4A4A5A),
-                            modifier = Modifier.size(18.dp)
+                            tint = if (canGoBack) Color.White else Color(0xFF454558),
+                            modifier = Modifier.size(19.dp)
                         )
                     }
 
@@ -275,84 +278,118 @@ fun BrowserScreen(
                     IconButton(
                         onClick = { if (canGoForward) webViewRef?.goForward() },
                         enabled = canGoForward,
-                        modifier = Modifier.size(34.dp)
+                        modifier = Modifier.size(36.dp)
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
                             contentDescription = "Forward",
-                            tint = if (canGoForward) Color.White else Color(0xFF4A4A5A),
-                            modifier = Modifier.size(18.dp)
+                            tint = if (canGoForward) Color.White else Color(0xFF454558),
+                            modifier = Modifier.size(19.dp)
                         )
                     }
 
+                    // Sleek, highly readable URL address bar
                     val isHttps = currentUrl.startsWith("https://", ignoreCase = true)
-                    OutlinedTextField(
-                        value = inputUrlText,
-                        onValueChange = { inputUrlText = it },
+                    Surface(
                         modifier = Modifier
                             .weight(1f)
                             .height(44.dp)
-                            .testTag("browser_url_input"),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color(0xFF181824),
-                            unfocusedContainerColor = Color(0xFF181824),
-                            focusedBorderColor = Color(0xFF3B82F6),
-                            unfocusedBorderColor = Color(0xFF282836),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
-                        placeholder = {
-                            Text("Search or URL…", color = Color(0xFF6E6E82), fontSize = 11.sp, maxLines = 1)
-                        },
-                        leadingIcon = {
+                            .testTag("browser_url_input_box"),
+                        shape = RoundedCornerShape(22.dp),
+                        color = Color(0xFF1C1C28),
+                        border = BorderStroke(1.dp, Color(0xFF323246))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             Icon(
                                 imageVector = if (isHttps) Icons.Outlined.Lock else Icons.Outlined.LockOpen,
                                 contentDescription = if (isHttps) "HTTPS" else "HTTP",
                                 tint = if (isHttps) StreamEmerald else WarningAmber,
-                                modifier = Modifier.size(13.dp)
+                                modifier = Modifier.size(14.dp)
                             )
-                        },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
-                        keyboardActions = KeyboardActions(onGo = {
-                            keyboardController?.hide()
-                            viewModel.navigateTo(inputUrlText)
-                            webViewRef?.loadUrl(viewModel.currentUrl.value)
-                        }),
-                        trailingIcon = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (inputUrlText.isNotEmpty()) {
-                                    IconButton(
-                                        onClick = { inputUrlText = "" },
-                                        modifier = Modifier.size(24.dp).testTag("browser_clear_url_button")
-                                    ) {
-                                        Icon(Icons.Outlined.Close, contentDescription = "Clear", tint = Color(0xFFA0A0B2), modifier = Modifier.size(13.dp))
-                                    }
+
+                            Box(
+                                modifier = Modifier.weight(1f),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                if (inputUrlText.isEmpty()) {
+                                    Text(
+                                        text = "Search or web address…",
+                                        color = Color(0xFF828299),
+                                        fontSize = 13.5.sp,
+                                        maxLines = 1
+                                    )
                                 }
-                                if (isLoading) {
-                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color(0xFF3B82F6))
-                                } else {
-                                    val isModified = inputUrlText.trim() != currentUrl.trim()
-                                    IconButton(
-                                        onClick = {
-                                            keyboardController?.hide()
-                                            viewModel.navigateTo(inputUrlText)
-                                            webViewRef?.loadUrl(viewModel.currentUrl.value)
-                                        },
-                                        modifier = Modifier.size(24.dp).testTag("browser_go_refresh_button")
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isModified) Icons.AutoMirrored.Outlined.ArrowForward else Icons.Outlined.Refresh,
-                                            contentDescription = if (isModified) "Go" else "Reload",
-                                            tint = if (isModified) Color(0xFF60A5FA) else Color.White.copy(alpha = 0.7f),
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                    }
+                                BasicTextField(
+                                    value = inputUrlText,
+                                    onValueChange = { inputUrlText = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("browser_url_input"),
+                                    singleLine = true,
+                                    textStyle = TextStyle(
+                                        color = Color.White,
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    ),
+                                    cursorBrush = SolidColor(Color(0xFF60A5FA)),
+                                    keyboardOptions = KeyboardOptions(
+                                        keyboardType = KeyboardType.Uri,
+                                        imeAction = ImeAction.Go
+                                    ),
+                                    keyboardActions = KeyboardActions(onGo = {
+                                        keyboardController?.hide()
+                                        viewModel.navigateTo(inputUrlText)
+                                        webViewRef?.loadUrl(viewModel.currentUrl.value)
+                                    })
+                                )
+                            }
+
+                            if (inputUrlText.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { inputUrlText = "" },
+                                    modifier = Modifier.size(24.dp).testTag("browser_clear_url_button")
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.Close,
+                                        contentDescription = "Clear",
+                                        tint = Color(0xFFA0A0B2),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+
+                            if (isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color(0xFF3B82F6)
+                                )
+                            } else {
+                                val isModified = inputUrlText.trim() != currentUrl.trim()
+                                IconButton(
+                                    onClick = {
+                                        keyboardController?.hide()
+                                        viewModel.navigateTo(inputUrlText)
+                                        webViewRef?.loadUrl(viewModel.currentUrl.value)
+                                    },
+                                    modifier = Modifier.size(26.dp).testTag("browser_go_refresh_button")
+                                ) {
+                                    Icon(
+                                        imageVector = if (isModified) Icons.AutoMirrored.Outlined.ArrowForward else Icons.Outlined.Refresh,
+                                        contentDescription = if (isModified) "Go" else "Reload",
+                                        tint = if (isModified) Color(0xFF60A5FA) else Color.White.copy(alpha = 0.8f),
+                                        modifier = Modifier.size(15.dp)
+                                    )
                                 }
                             }
                         }
-                    )
+                    }
 
                     // 3-dots Browser Menu on top right
                     var browserMenuExpanded by remember { mutableStateOf(false) }
@@ -535,144 +572,19 @@ fun BrowserScreen(
                 .weight(1f)
                 .fillMaxWidth()
         ) {
-            // Embedded WebView (always live so audio playback is preserved)
+            // Embedded WebView (held in BrowserViewModel so navigation across tabs and screen lock never disrupts playback!)
             AndroidView(
                 factory = { ctx ->
-                    WebView(ctx).apply {
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        settings.apply {
-                            javaScriptEnabled = true
-                            domStorageEnabled = true
-                            mediaPlaybackRequiresUserGesture = false
-                            loadsImagesAutomatically = !isLiteMode
-                            blockNetworkImage = isLiteMode
-                            useWideViewPort = true
-                            loadWithOverviewMode = true
-                            databaseEnabled = true
-                            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                            cacheMode = WebSettings.LOAD_DEFAULT
-                        }
-
-                        // Attach digital audio capture bridge
-                        addJavascriptInterface(
-                            BrowserAudioBridge { pcmBytes ->
-                                viewModel.feedAudioPcm(pcmBytes)
-                            },
-                            "C3AudioBridge"
-                        )
-
-                        webViewClient = object : WebViewClient() {
-                            override fun shouldInterceptRequest(
-                                view: WebView?,
-                                request: WebResourceRequest?
-                            ): WebResourceResponse? {
-                                val url = request?.url?.toString()
-                                if (viewModel.isAdBlockEnabled.value && AdBlockEngine.shouldBlock(url)) {
-                                    return AdBlockEngine.createEmptyResponse()
-                                }
-                                return super.shouldInterceptRequest(view, request)
-                            }
-
-                            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                super.onPageStarted(view, url, favicon)
-                                viewModel.setLoading(true)
-                                // Inject audio capture & phone speaker muting immediately on start
-                                view?.evaluateJavascript(BrowserAudioEngine.AUDIO_CAPTURE_AND_MUTE_SCRIPT, null)
-                            }
-
-                            override fun onPageFinished(view: WebView?, url: String?) {
-                                super.onPageFinished(view, url)
-                                viewModel.setLoading(false)
-                                val title = view?.title ?: ""
-                                val current = url ?: ""
-                                viewModel.setPageInfo(title, current)
-
-                                // Inject audio capture & phone speaker muting script
-                                view?.evaluateJavascript(BrowserAudioEngine.AUDIO_CAPTURE_AND_MUTE_SCRIPT, null)
-
-                                // Inject Audio-First background playback keep-alive script
-                                view?.evaluateJavascript(
-                                    """
-                                    (function() {
-                                        // Prevent tab visibility throttle on media playback
-                                        Object.defineProperty(document, 'hidden', { value: false, writable: false });
-                                        Object.defineProperty(document, 'visibilityState', { value: 'visible', writable: false });
-                                    })();
-                                    """.trimIndent(),
-                                    null
-                                )
-
-                                // Inject YouTube Music Ad-Skipper & Ad Blocker script if enabled
-                                if (viewModel.isAdBlockEnabled.value) {
-                                    view?.evaluateJavascript(AdBlockEngine.adSkipperScript, null)
-                                }
-
-                                if (viewModel.isLiteMode.value) {
-                                    view?.evaluateJavascript(
-                                        """
-                                        (function() {
-                                            var existing = document.getElementById('c3_lite_mode_style');
-                                            if (!existing) {
-                                                var style = document.createElement('style');
-                                                style.id = 'c3_lite_mode_style';
-                                                style.innerHTML = 'img, video:not([controls]), .ad-container, [class*="banner"], [class*="sponsor"] { display: none !important; }';
-                                                document.head.appendChild(style);
-                                            }
-                                        })();
-                                        """.trimIndent(),
-                                        null
-                                    )
-                                }
-                            }
-                        }
-
-                        webChromeClient = object : WebChromeClient() {
-                            override fun onReceivedTitle(view: WebView?, title: String?) {
-                                super.onReceivedTitle(view, title)
-                                if (!title.isNullOrBlank()) {
-                                    viewModel.setPageInfo(title, view?.url ?: "")
-                                }
-                            }
-                        }
-
-                        loadUrl(viewModel.currentUrl.value)
-                        webViewRef = this
-                    }
+                    val webView = viewModel.getOrCreateWebView(ctx)
+                    (webView.parent as? ViewGroup)?.removeView(webView)
+                    webViewRef = webView
+                    webView
                 },
                 update = { webView ->
                     webViewRef = webView
                     val lite = isLiteMode
                     webView.settings.loadsImagesAutomatically = !lite
                     webView.settings.blockNetworkImage = lite
-                    if (lite) {
-                        webView.evaluateJavascript(
-                            """
-                            (function() {
-                                var existing = document.getElementById('c3_lite_mode_style');
-                                if (!existing) {
-                                    var style = document.createElement('style');
-                                    style.id = 'c3_lite_mode_style';
-                                    style.innerHTML = 'img, video:not([controls]), .ad-container, [class*="banner"], [class*="sponsor"] { display: none !important; }';
-                                    document.head.appendChild(style);
-                                }
-                            })();
-                            """.trimIndent(),
-                            null
-                        )
-                    } else {
-                        webView.evaluateJavascript(
-                            """
-                            (function() {
-                                var existing = document.getElementById('c3_lite_mode_style');
-                                if (existing) { existing.remove(); }
-                            })();
-                            """.trimIndent(),
-                            null
-                        )
-                    }
                 },
                 modifier = Modifier
                     .fillMaxSize()
