@@ -105,10 +105,10 @@ class PacedAudioTransmitter(
                     Log.i(TAG, "Jitter buffer filled ($available bytes). Real-time streaming engaged.")
                 }
             } else {
-                // Active playback mode: pull from the jitter buffer reservoir
-                if (available < chunkBuffer.size) {
-                    // Buffer ran completely dry (e.g. playback stopped or huge OS pause)
-                    isPreRolling = true
+                // Active playback mode: pull from the ring buffer
+                if (available <= 0) {
+                    // Buffer is temporarily empty (e.g. pause or network hiccup)
+                    // Send paced comfort silence so ESP32 receiver connection and audio clock stay alive
                     readCount = chunkBuffer.size
                     isComfortSilence = true
                     if (!isCurrentlyStarved) {
@@ -116,8 +116,14 @@ class PacedAudioTransmitter(
                         starvationStartTime = System.currentTimeMillis()
                     }
                 } else {
-                    // Normal continuous playback: pulled smoothly from the pre-rolled buffer
-                    readCount = ringBuffer.read(chunkBuffer, 0, chunkBuffer.size)
+                    // Pull available real audio (up to full chunk size)
+                    val toRead = minOf(available, chunkBuffer.size)
+                    val actualRead = ringBuffer.read(chunkBuffer, 0, toRead)
+                    if (actualRead < chunkBuffer.size) {
+                        // Pad remainder of chunk with silence if partial
+                        java.util.Arrays.fill(chunkBuffer, actualRead, chunkBuffer.size, 0.toByte())
+                    }
+                    readCount = chunkBuffer.size
                     isComfortSilence = false
                     if (isCurrentlyStarved) {
                         isCurrentlyStarved = false

@@ -14,12 +14,15 @@ object AdBlockEngine {
 
     // Known ad servers, tracking networks, and YouTube ad delivery endpoints
     private val blockedDomainKeywords = listOf(
-        // Google / YouTube Ad Networks
+        // Google / YouTube Ad Networks & Telemetry
         "googleads.g.doubleclick.net",
         "ad.doubleclick.net",
+        "pubads.g.doubleclick.net",
         "securepubads.g.doubleclick.net",
         "static.doubleclick.net",
+        "doubleclick.net",
         "pagead2.googlesyndication.com",
+        "pagead2.google.com",
         "adservice.google.",
         "stats.g.doubleclick.net",
         "youtube.com/pagead",
@@ -34,7 +37,7 @@ object AdBlockEngine {
         "google-analytics.com",
         "fundingchoicesmessages.google.com",
         
-        // General Ad Servers & Trackers
+        // General Ad Networks & Aggressive Trackers
         "scorecardresearch.com",
         "adnxs.com",
         "advertising.com",
@@ -53,7 +56,10 @@ object AdBlockEngine {
         "connect.facebook.net",
         "hotjar.com",
         "branch.io",
-        "chartbeat.com"
+        "chartbeat.com",
+        "innovid.com",
+        "smartadserver.com",
+        "casalemedia.com"
     )
 
     // Fast URL path matches specifically for video / music audio ad calls
@@ -70,7 +76,8 @@ object AdBlockEngine {
         "/api/stats/atr",
         "adformat=",
         "ad_type=",
-        "adunit="
+        "adunit=",
+        "ctier=A"
     )
 
     /**
@@ -119,6 +126,7 @@ object AdBlockEngine {
         ytmusic-mealbar-promo-renderer,
         ytmusic-banner-promo-renderer,
         ytmusic-guide-promo-entry-renderer,
+        ytmusic-popup-container tp-yt-paper-dialog,
         .ytmusic-mealbar-promo-renderer,
         .ad-showing,
         .ad-container,
@@ -136,6 +144,7 @@ object AdBlockEngine {
         ytd-banner-promo-renderer,
         ytd-ad-slot-renderer,
         ytd-in-feed-ad-layout-renderer,
+        ytd-popup-container,
         tp-yt-paper-dialog[aria-label*="Premium"],
         tp-yt-paper-dialog[aria-label*="Music Premium"],
         .ytmusic-upsell-dialog-renderer,
@@ -162,7 +171,7 @@ object AdBlockEngine {
      */
     val adSkipperScript: String = """
         (function() {
-            // 1. Inject Ad-Hiding CSS
+            // 1. Inject or update Ad-Hiding CSS
             var existingStyle = document.getElementById('c3_adblock_style');
             if (!existingStyle) {
                 var style = document.createElement('style');
@@ -171,10 +180,7 @@ object AdBlockEngine {
                 (document.head || document.documentElement).appendChild(style);
             }
 
-            if (window.__c3_adblock_active) return;
-            window.__c3_adblock_active = true;
-
-            // 2. Strip YouTube ad placements from client player data
+            // 2. Strip YouTube ad placements from client player data if available
             if (window.ytInitialPlayerResponse) {
                 try {
                     window.ytInitialPlayerResponse.adPlacements = [];
@@ -183,10 +189,11 @@ object AdBlockEngine {
                 } catch(e) {}
             }
 
-            // 3. Intercept fetch & XMLHttpRequest to sanitize player responses before playback
+            // 3. Intercept fetch to sanitize player responses before playback
             try {
-                var originalFetch = window.fetch;
-                if (originalFetch) {
+                if (!window.__c3_fetch_hooked && window.fetch) {
+                    window.__c3_fetch_hooked = true;
+                    var originalFetch = window.fetch;
                     window.fetch = function() {
                         var args = arguments;
                         var url = (args && args[0]) ? args[0].toString() : '';
@@ -213,7 +220,7 @@ object AdBlockEngine {
                 }
             } catch(e) {}
 
-            // 4. Ultra-fast Ad-Skipper & Promo Dismissal Engine
+            // 4. Ultra-fast Ad-Skipper & Promo Dismissal Loop
             function eliminateAds() {
                 try {
                     var player = document.querySelector('#movie_player, .html5-video-player, ytmusic-player');
@@ -242,7 +249,7 @@ object AdBlockEngine {
 
                     // Auto-dismiss mealbar promos and Premium upsell modals
                     var dismissButtons = document.querySelectorAll(
-                        'ytmusic-mealbar-promo-renderer #dismiss-button, ytmusic-mealbar-promo-renderer button, tp-yt-paper-dialog #dismiss-button, tp-yt-paper-button#dismiss-button, ytd-popup-container #dismiss-button'
+                        'ytmusic-mealbar-promo-renderer #dismiss-button, ytmusic-mealbar-promo-renderer button, tp-yt-paper-dialog #dismiss-button, tp-yt-paper-button#dismiss-button, ytd-popup-container #dismiss-button, [aria-label*="Dismiss"], [aria-label*="No thanks"]'
                     );
                     for (var j = 0; j < dismissButtons.length; j++) {
                         var dBtn = dismissButtons[j];
@@ -253,13 +260,13 @@ object AdBlockEngine {
                 } catch(e) {}
             }
 
-            // Run on tight 80ms interval
-            setInterval(eliminateAds, 80);
+            if (!window.__c3_ad_interval) {
+                window.__c3_ad_interval = setInterval(eliminateAds, 50);
+            }
 
-            // Also observe DOM changes
-            if (document.documentElement) {
-                var observer = new MutationObserver(eliminateAds);
-                observer.observe(document.documentElement, { childList: true, subtree: true });
+            if (document.documentElement && !window.__c3_ad_observer) {
+                window.__c3_ad_observer = new MutationObserver(eliminateAds);
+                window.__c3_ad_observer.observe(document.documentElement, { childList: true, subtree: true });
             }
         })();
     """.trimIndent()

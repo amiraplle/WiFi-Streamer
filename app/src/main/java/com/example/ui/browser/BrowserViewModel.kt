@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -60,15 +61,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _artworkUrl = MutableStateFlow<String?>(null)
     val artworkUrl: StateFlow<String?> = _artworkUrl.asStateFlow()
 
-    // Mode: "Compact Smart Artwork" vs "Full Web Browser"
-    private val _isSmartArtworkMode = MutableStateFlow(false)
-    val isSmartArtworkMode: StateFlow<Boolean> = _isSmartArtworkMode.asStateFlow()
-
-    // Lite Mode (Audio-First, Lightweight Reader / Data-Saver)
-    private val _isLiteMode = MutableStateFlow(false)
-    val isLiteMode: StateFlow<Boolean> = _isLiteMode.asStateFlow()
-
-    // Ad & Telemetry Blocker (Blocks ads, promo modals, and auto-skips YouTube Music video/audio ads)
+    // Ad & Telemetry Blocker (Blocks ads, promo modals, and auto-skips video/audio ads)
     private val _isAdBlockEnabled = MutableStateFlow(true)
     val isAdBlockEnabled: StateFlow<Boolean> = _isAdBlockEnabled.asStateFlow()
 
@@ -83,7 +76,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         MusicQuickLink("Bandcamp", "https://bandcamp.com", "💿", "Direct Artist Audio")
     )
 
-    private var persistentWebView: WebView? = null
+    private var persistentWebView: BackgroundAudioWebView? = null
 
     init {
         // Poll service telemetry flow periodically when service is alive
@@ -113,14 +106,14 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * Obtains the persistent singleton WebView instance.
-     * Retaining the WebView inside the ViewModel prevents it from being destroyed
-     * when navigating between Compose screens (Home, Receivers, Browser, Settings),
-     * ensuring audio playback continues uninterrupted without page reloads!
+     * Obtains the persistent singleton BackgroundAudioWebView instance.
+     * Retaining the BackgroundAudioWebView inside the ViewModel prevents it from being destroyed
+     * when navigating between Compose screens or when the app is minimized / screen is locked,
+     * ensuring audio playback continues uninterrupted without interruption or page reloads!
      */
-    fun getOrCreateWebView(context: Context): WebView {
+    fun getOrCreateWebView(context: Context): BackgroundAudioWebView {
         if (persistentWebView == null) {
-            persistentWebView = WebView(context).apply {
+            persistentWebView = BackgroundAudioWebView(context).apply {
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
@@ -129,8 +122,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     javaScriptEnabled = true
                     domStorageEnabled = true
                     mediaPlaybackRequiresUserGesture = false
-                    loadsImagesAutomatically = !isLiteMode.value
-                    blockNetworkImage = isLiteMode.value
+                    loadsImagesAutomatically = true
+                    blockNetworkImage = false
                     useWideViewPort = true
                     loadWithOverviewMode = true
                     databaseEnabled = true
@@ -138,7 +131,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     cacheMode = WebSettings.LOAD_DEFAULT
                     allowFileAccess = true
                     allowContentAccess = true
+                    // Modern clean Chrome Mobile User-Agent to prevent aggressive embedded-webview ad prompts
+                    userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
                 }
+
+                val cookieManager = CookieManager.getInstance()
+                cookieManager.setAcceptCookie(true)
+                cookieManager.setAcceptThirdPartyCookies(this, true)
 
                 // Attach digital audio capture bridge
                 addJavascriptInterface(
@@ -182,23 +181,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
                         if (isAdBlockEnabled.value) {
                             view?.evaluateJavascript(AdBlockEngine.adSkipperScript, null)
-                        }
-
-                        if (isLiteMode.value) {
-                            view?.evaluateJavascript(
-                                """
-                                (function() {
-                                    var existing = document.getElementById('c3_lite_mode_style');
-                                    if (!existing) {
-                                        var style = document.createElement('style');
-                                        style.id = 'c3_lite_mode_style';
-                                        style.innerHTML = 'img, video:not([controls]), .ad-container, [class*="banner"], [class*="sponsor"] { display: none !important; }';
-                                        document.head.appendChild(style);
-                                    }
-                                })();
-                                """.trimIndent(),
-                                null
-                            )
                         }
                     }
                 }
@@ -259,7 +241,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _pageTitle.value = title.ifBlank { "Smart Web Audio" }
         _artworkUrl.value = artwork
 
-        // Extract simplified artist/site name
         val domain = try {
             val uri = java.net.URI(url)
             uri.host?.replace("www.", "")?.replace("m.", "") ?: "Web Source"
@@ -271,19 +252,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun setLoading(loading: Boolean) {
         _isLoading.value = loading
-    }
-
-    fun toggleSmartArtworkMode() {
-        _isSmartArtworkMode.value = !_isSmartArtworkMode.value
-    }
-
-    fun toggleLiteMode() {
-        val newLite = !_isLiteMode.value
-        _isLiteMode.value = newLite
-        persistentWebView?.settings?.apply {
-            loadsImagesAutomatically = !newLite
-            blockNetworkImage = newLite
-        }
     }
 
     fun toggleAdBlock() {
