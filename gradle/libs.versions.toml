@@ -94,6 +94,8 @@ firebase-auth = { group = "com.google.firebase", name = "firebase-auth" }
 androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
 androidx-credentials-play-services = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
+media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version = "1.5.0" }
+media3-common = { group = "androidx.media3", name = "media3-common", version = "1.5.0" }
 
 
 [plugins]

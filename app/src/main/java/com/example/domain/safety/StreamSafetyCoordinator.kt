@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 enum class ActiveStreamProcess(val id: String, val displayName: String) {
     NONE("none", "Standby"),
     SYSTEM_STREAM("system", "System Audio Stream"),
-    BROWSER_STREAM("browser", "In-App Browser Stream")
+    BROWSER_STREAM("browser", "Direct YouTube Music ExoPlayer Stream")
 }
 
 /**
