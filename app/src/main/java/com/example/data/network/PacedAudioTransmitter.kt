@@ -9,13 +9,15 @@ import java.util.concurrent.locks.LockSupport
 
 /**
  * Precision rate-regulated audio transmitter.
- * Pulls PCM audio from [AudioRingBuffer] and feeds the TCP socket or HTTP server at the exact
- * real-time playback clock, protecting the ESP32-C3 I2S DMA buffer from burst overflows and starvations.
+ * Pulls PCM audio from [AudioRingBuffer] and feeds the UDP transport at the exact
+ * hardware playback clock, protecting the ESP32-C3 / ESP32-S3 I2S DMA buffer from
+ * burst overflows, socket drops, and starvation clicks.
  *
- * Designed for extreme battery efficiency:
- * - Uses zero heap allocations in the hot loop
- * - Employs LockSupport.parkNanos for nanosecond-level sleep with zero CPU spin
- * - Resets timing on network stalls to strictly prevent catch-up bursts
+ * Designed for rock-solid real-time stability:
+ * - Fixed 1024-byte packet frames (256 stereo 16-bit samples) matching ESP32 DMA descriptors
+ * - Zero UDP fragmentation (every packet fits in a single unfragmented 1024-byte datagram)
+ * - Jitter buffer reservoir (~150ms) absorbs OS scheduling jitter & background animation stalls
+ * - Nanosecond monotonic clock regulation prevents packet burst floods on the microcontroller
  */
 class PacedAudioTransmitter(
     private val ringBuffer: AudioRingBuffer,
@@ -26,9 +28,11 @@ class PacedAudioTransmitter(
     private val isRunning = AtomicBoolean(false)
     private var transmitterThread: Thread? = null
 
-    // Pre-allocated chunk buffer for transmission (e.g. 2048 bytes ~ 11.6ms @ 44.1kHz stereo)
-    private val chunkBuffer = ByteArray(2048)
-    private val silenceChunk = ByteArray(2048)
+    // Standard 1024-byte packet size (256 stereo 16-bit frames = ~5.8ms @ 44.1kHz)
+    // Fits comfortably in a single UDP packet (MTU < 1400) without fragmentation
+    private val PACKET_SIZE = 1024
+    private val chunkBuffer = ByteArray(PACKET_SIZE)
+    private val silenceChunk = ByteArray(PACKET_SIZE)
 
     @Volatile
     var ratePacingEnabled: Boolean = true
@@ -43,7 +47,7 @@ class PacedAudioTransmitter(
     fun setTargetLatencyPreset(preset: com.example.model.BufferLatencyPreset, format: AudioStreamFormat) {
         val bytesPerSec = format.sampleRate.toLong() * format.frameSizeBytes
         val calculated = ((bytesPerSec * preset.durationMs) / 1000).toInt()
-        targetPreRollBytes = calculated.coerceIn(chunkBuffer.size * 2, 64 * 1024)
+        targetPreRollBytes = calculated.coerceIn(PACKET_SIZE * 8, 64 * 1024)
         Log.i(TAG, "Configured target jitter buffer pre-roll: $targetPreRollBytes bytes (${preset.durationMs}ms)")
     }
 
@@ -61,7 +65,7 @@ class PacedAudioTransmitter(
             start()
         }
 
-        Log.i(TAG, "PacedAudioTransmitter started for ${format.displayName} (Pacing: $ratePacingEnabled, PreRoll: ${targetPreRollBytes}B)")
+        Log.i(TAG, "PacedAudioTransmitter started for ${format.displayName} (Pacing: $ratePacingEnabled, PreRoll: ${targetPreRollBytes}B, Packet: ${PACKET_SIZE}B)")
     }
 
     fun stop() {
@@ -76,107 +80,97 @@ class PacedAudioTransmitter(
     }
 
     private fun transmissionLoop() {
-        var bytesPerSec = currentFormat.sampleRate.toLong() * currentFormat.frameSizeBytes
-        if (bytesPerSec <= 0L) bytesPerSec = 176400L
+        val bytesPerSec = (currentFormat.sampleRate.toLong() * currentFormat.frameSizeBytes).coerceAtLeast(1L)
+        // Duration of one 1024-byte packet in nanoseconds (~5,804,988 ns at 44.1kHz stereo)
+        val packetDurationNs = (PACKET_SIZE.toLong() * 1_000_000_000L) / bytesPerSec
 
-        var nextScheduledTimeNs = System.nanoTime()
-        val maxAllowedDriftNs = 50_000_000L // 50ms maximum allowable lag before resetting clock
+        var nextPacketTimeNs = System.nanoTime()
+        var isBuffering = true
         var starvationStartTime = 0L
-        var isCurrentlyStarved = false
-        var isPreRolling = true
 
         while (isRunning.get()) {
             val available = ringBuffer.available
-            val readCount: Int
-            val isComfortSilence: Boolean
+            val minCushionBytes = targetPreRollBytes.coerceIn(PACKET_SIZE * 8, 64 * 1024)
 
-            if (isPreRolling) {
-                // While waiting for the initial jitter buffer reservoir to build:
-                if (available < targetPreRollBytes) {
-                    // Send paced comfort silence so the ESP32 receiver connection stays alive and clock runs
-                    readCount = chunkBuffer.size
-                    isComfortSilence = true
-                } else {
-                    // Jitter buffer reservoir reached! Seamlessly engage real playback
-                    isPreRolling = false
-                    nextScheduledTimeNs = System.nanoTime()
-                    readCount = ringBuffer.read(chunkBuffer, 0, chunkBuffer.size)
-                    isComfortSilence = false
-                    Log.i(TAG, "Jitter buffer filled ($available bytes). Real-time streaming engaged.")
-                }
-            } else {
-                // Active playback mode: pull from the ring buffer
-                if (available <= 0) {
-                    // Buffer is temporarily empty (e.g. pause or network hiccup)
-                    // Send paced comfort silence so ESP32 receiver connection and audio clock stay alive
-                    readCount = chunkBuffer.size
-                    isComfortSilence = true
-                    if (!isCurrentlyStarved) {
-                        isCurrentlyStarved = true
-                        starvationStartTime = System.currentTimeMillis()
-                    }
-                } else {
-                    // Pull available real audio (up to full chunk size)
-                    val toRead = minOf(available, chunkBuffer.size)
-                    val actualRead = ringBuffer.read(chunkBuffer, 0, toRead)
-                    if (actualRead < chunkBuffer.size) {
-                        // Pad remainder of chunk with silence if partial
-                        java.util.Arrays.fill(chunkBuffer, actualRead, chunkBuffer.size, 0.toByte())
-                    }
-                    readCount = chunkBuffer.size
-                    isComfortSilence = false
-                    if (isCurrentlyStarved) {
-                        isCurrentlyStarved = false
-                        val gapDuration = System.currentTimeMillis() - starvationStartTime
-                        if (gapDuration >= 20L) {
-                            AudioInterruptionLogger.log(
-                                category = "RingBuffer Starvation",
-                                description = "Audio capture paused for ${gapDuration}ms. Transmitter sent comfort silence frames to maintain receiver playback.",
-                                durationMs = gapDuration
-                            )
+            if (isBuffering) {
+                // Initial pre-roll or recovery buffer: wait until healthy cushion accumulates
+                if (available < minCushionBytes) {
+                    // Send paced comfort silence to keep ESP32 connection alive and DAC clocked
+                    sendChunkToTransport(silenceChunk, 0, PACKET_SIZE)
+
+                    if (ratePacingEnabled) {
+                        nextPacketTimeNs += packetDurationNs
+                        val now = System.nanoTime()
+                        val waitNs = nextPacketTimeNs - now
+                        if (waitNs > 0) {
+                            LockSupport.parkNanos(waitNs)
+                        } else {
+                            nextPacketTimeNs = now
                         }
                     }
+                    continue
+                } else {
+                    // Reservoir filled! Seamlessly engage real audio playback
+                    isBuffering = false
+                    nextPacketTimeNs = System.nanoTime()
+                    if (starvationStartTime > 0L) {
+                        val gapDuration = System.currentTimeMillis() - starvationStartTime
+                        AudioInterruptionLogger.log(
+                            category = "Buffer Refill",
+                            description = "Audio reservoir recovered after ${gapDuration}ms. Smooth playback resumed.",
+                            durationMs = gapDuration
+                        )
+                        starvationStartTime = 0L
+                    }
+                    Log.i(TAG, "Jitter buffer filled ($available bytes). Real-time streaming engaged.")
                 }
             }
 
-            if (readCount <= 0) {
-                LockSupport.parkNanos(2_000_000L)
+            // Active streaming mode:
+            if (available < PACKET_SIZE) {
+                // Buffer ran dry due to playback pause or heavy source interruption
+                sendChunkToTransport(silenceChunk, 0, PACKET_SIZE)
+                isBuffering = true
+                starvationStartTime = System.currentTimeMillis()
+
+                if (ratePacingEnabled) {
+                    nextPacketTimeNs += packetDurationNs
+                    val now = System.nanoTime()
+                    val waitNs = nextPacketTimeNs - now
+                    if (waitNs > 0) {
+                        LockSupport.parkNanos(waitNs)
+                    } else {
+                        nextPacketTimeNs = now
+                    }
+                }
                 continue
             }
 
-            // Calculate chunk duration in nanoseconds
-            val chunkDurationNs = (readCount.toLong() * 1_000_000_000L) / bytesPerSec
-
-            // If the buffer has accumulated more than 2x the target reservoir (e.g. after a long UI gesture backlog),
-            // transmit immediately to drain the excess backlog down to the target buffer level!
-            val hasBacklog = !isComfortSilence && available > (targetPreRollBytes * 2)
-
-            if (ratePacingEnabled && !hasBacklog) {
-                val now = System.nanoTime()
-
-                // If scheduled time is in the future, sleep precisely until transmission window
-                if (nextScheduledTimeNs > now) {
-                    val waitNs = nextScheduledTimeNs - now
-                    LockSupport.parkNanos(waitNs)
-                    nextScheduledTimeNs += chunkDurationNs
-                } else {
-                    if ((now - nextScheduledTimeNs) > maxAllowedDriftNs) {
-                        nextScheduledTimeNs = now + chunkDurationNs
-                    } else {
-                        nextScheduledTimeNs += chunkDurationNs
-                    }
-                }
-            } else if (hasBacklog) {
-                // Keep next scheduled time aligned with current real time
-                nextScheduledTimeNs = System.nanoTime()
+            // Pull exactly one 1024-byte frame from the ring buffer
+            val readCount = ringBuffer.read(chunkBuffer, 0, PACKET_SIZE)
+            if (readCount < PACKET_SIZE) {
+                java.util.Arrays.fill(chunkBuffer, readCount, PACKET_SIZE, 0.toByte())
             }
 
-            // Transmit to TCP / HTTP transport
-            val bufferToSend = if (isComfortSilence) silenceChunk else chunkBuffer
-            val sendSuccess = sendChunkToTransport(bufferToSend, 0, readCount)
+            // Transmit single unfragmented 1024-byte datagram to transport
+            val sendSuccess = sendChunkToTransport(chunkBuffer, 0, PACKET_SIZE)
             if (!sendSuccess) {
-                // If transmission failed (socket dropped), sleep briefly to conserve CPU
-                LockSupport.parkNanos(10_000_000L) // 10ms
+                LockSupport.parkNanos(2_000_000L) // 2ms backoff on network drop
+            }
+
+            // Nanosecond rate pacing: strictly prevents packet bursts
+            if (ratePacingEnabled) {
+                nextPacketTimeNs += packetDurationNs
+                val now = System.nanoTime()
+                val waitNs = nextPacketTimeNs - now
+
+                if (waitNs > 0) {
+                    LockSupport.parkNanos(waitNs)
+                } else {
+                    // Slipped behind clock due to network I/O or OS scheduling.
+                    // Strictly reset clock to now so we NEVER burst-flood the ESP32!
+                    nextPacketTimeNs = now
+                }
             }
         }
     }

@@ -5,10 +5,10 @@ import kotlin.concurrent.withLock
 
 /**
  * High-performance, zero-allocation circular ring buffer for raw audio PCM frames.
- * Decouples the real-time AudioRecord thread from the TCP/HTTP network transmission thread,
- * ensuring network latency spikes never block audio capture or cause sample drops.
+ * Decouples the audio capture thread (Browser/AudioRecord) from the network transmission thread,
+ * ensuring network latency spikes and buffer fluctuations never stall audio capture or corrupt sample alignment.
  */
-class AudioRingBuffer(val capacity: Int = 128 * 1024) {
+class AudioRingBuffer(val capacity: Int = 256 * 1024) {
 
     private val buffer = ByteArray(capacity)
     private var writePos = 0
@@ -18,7 +18,7 @@ class AudioRingBuffer(val capacity: Int = 128 * 1024) {
 
     /**
      * Writes [length] bytes from [src] into the ring buffer.
-     * If capacity is exceeded, drops the oldest unread bytes to keep streaming strictly real-time.
+     * If capacity is exceeded, drops the oldest unread bytes aligned to 4-byte stereo frames.
      * Guaranteed to execute in microseconds without blocking for network I/O.
      */
     fun write(src: ByteArray, offset: Int, length: Int): Int {
@@ -27,12 +27,18 @@ class AudioRingBuffer(val capacity: Int = 128 * 1024) {
         lock.withLock {
             val toWrite = length.coerceAtMost(capacity)
 
-            // If incoming data exceeds remaining capacity, discard oldest data
+            // If incoming data exceeds remaining capacity, discard oldest data (aligned to 4-byte frames)
             val freeSpace = capacity - availableBytes
             if (toWrite > freeSpace) {
-                val overflow = toWrite - freeSpace
-                readPos = (readPos + overflow) % capacity
-                availableBytes -= overflow
+                var overflow = toWrite - freeSpace
+                // Align overflow to 4 bytes so L/R channel phase is strictly preserved
+                val frameAlign = overflow % 4
+                if (frameAlign != 0) {
+                    overflow += (4 - frameAlign)
+                }
+                val actualDrop = overflow.coerceAtMost(availableBytes)
+                readPos = (readPos + actualDrop) % capacity
+                availableBytes -= actualDrop
             }
 
             // Write chunk in 1 or 2 segments (handling wrap-around)

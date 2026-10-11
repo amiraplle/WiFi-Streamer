@@ -22,13 +22,13 @@ class BrowserAudioBridge(
 
 object BrowserAudioEngine {
     /**
-     * Injected Web Audio API Interceptor & Background Continuous Playback Engine.
+     * Injected Web Audio API Interceptor & Rock-Solid Real-Time Playback Engine.
      *
      * 1. Re-routes <video> and <audio> HTML elements into Web Audio API.
      * 2. Feeds raw PCM samples at exact hardware sample rate into C3AudioBridge for direct ESP transmission.
      * 3. Prevents media elements from producing sound through physical phone speakers (inaudible 1e-6 gain).
      * 4. Intercepts screen lock / minimize events so playback continues seamlessly with app minimized or screen off.
-     * 5. Uses Web Worker keep-alive ticker, resampler, and fast chunked Base64 encoding for rock-solid stability.
+     * 5. Fast 1024-sample frames (23ms) for ultra-smooth jitter-free delivery.
      */
     fun getScript(targetSampleRate: Int = 44100): String = """
     (function() {
@@ -76,6 +76,16 @@ object BrowserAudioEngine {
             return audioCtx;
         }
 
+        // Auto-resume AudioContext on user interactions
+        ['click', 'pointerdown', 'keydown', 'touchstart'].forEach(function(evt) {
+            window.addEventListener(evt, function() {
+                var ctx = getContext();
+                if (ctx && ctx.state === 'suspended') {
+                    ctx.resume().catch(function() {});
+                }
+            }, { capture: true, passive: true });
+        });
+
         // 3. Keep audio graph active without audible speaker output
         var silentGain = null;
         function getSilentGain(ctx) {
@@ -92,13 +102,16 @@ object BrowserAudioEngine {
             if (!el || el._c3_captured) return;
             el._c3_captured = true;
             window._c3_last_media = el;
+            el.muted = false;
+            if (el.volume < 1.0) el.volume = 1.0;
 
             try {
                 var ctx = getContext();
                 if (!ctx) return;
 
                 var source = ctx.createMediaElementSource(el);
-                var processor = ctx.createScriptProcessor(2048, 2, 2);
+                // 1024 samples = 23.2ms per callback for smooth, steady sample delivery
+                var processor = ctx.createScriptProcessor(1024, 2, 2);
 
                 processor.onaudioprocess = function(evt) {
                     if (!window.C3AudioBridge || !window._c3_streaming_active) return;
@@ -141,7 +154,8 @@ object BrowserAudioEngine {
                     }
 
                     // Always stream continuous PCM so receiver clock and pacing remain perfectly synchronous
-                    var b64 = uint8ToBase64(new Uint8Array(pcm16.buffer));
+                    var u8 = new Uint8Array(pcm16.buffer, 0, pcm16.length * 2);
+                    var b64 = uint8ToBase64(u8);
                     window.C3AudioBridge.sendAudioPcm(b64);
                 };
 
@@ -172,7 +186,7 @@ object BrowserAudioEngine {
         try {
             if (!window._c3_worker) {
                 var workerBlob = new Blob([
-                    'setInterval(function() { postMessage("tick"); }, 50);'
+                    'setInterval(function() { postMessage("tick"); }, 40);'
                 ], { type: 'application/javascript' });
                 window._c3_worker = new Worker(URL.createObjectURL(workerBlob));
                 window._c3_worker.onmessage = function() {
@@ -187,12 +201,17 @@ object BrowserAudioEngine {
         function scanMedia() {
             var items = document.querySelectorAll('video, audio');
             for (var i = 0; i < items.length; i++) {
-                hookMediaElement(items[i]);
+                var el = items[i];
+                if (el) {
+                    el.muted = false;
+                    if (el.volume < 1.0) el.volume = 1.0;
+                    hookMediaElement(el);
+                }
             }
         }
 
         scanMedia();
-        setInterval(scanMedia, 600);
+        setInterval(scanMedia, 500);
 
         if (document.documentElement) {
             var obs = new MutationObserver(scanMedia);

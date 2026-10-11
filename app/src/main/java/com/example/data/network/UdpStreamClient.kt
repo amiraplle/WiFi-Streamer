@@ -77,7 +77,7 @@ class UdpStreamClient(
                 } catch (_: Exception) {}
             }
 
-            newSocket.sendBufferSize = 64 * 1024
+            newSocket.sendBufferSize = 128 * 1024
             newSocket.broadcast = true
 
             // Send initial format header if configured (optional C3 sync or WAV header)
@@ -121,12 +121,17 @@ class UdpStreamClient(
         val maxAlignedPayload = (MAX_UDP_PAYLOAD / frameSize) * frameSize
 
         return try {
-            var sent = 0
-            while (sent < length) {
-                val chunkSize = (length - sent).coerceAtMost(maxAlignedPayload)
-                val packet = DatagramPacket(buffer, offset + sent, chunkSize, addr, targetPort)
+            if (length <= maxAlignedPayload) {
+                val packet = DatagramPacket(buffer, offset, length, addr, targetPort)
                 s.send(packet)
-                sent += chunkSize
+            } else {
+                var sent = 0
+                while (sent < length) {
+                    val chunkSize = (length - sent).coerceAtMost(maxAlignedPayload)
+                    val packet = DatagramPacket(buffer, offset + sent, chunkSize, addr, targetPort)
+                    s.send(packet)
+                    sent += chunkSize
+                }
             }
 
             val total = totalBytesWritten.addAndGet(length.toLong())
