@@ -307,7 +307,7 @@ fun StudioBottomNavigation(
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            screens.forEach { screen ->
+            screens.filterNotNull().forEach { screen ->
                 val isSelected = currentRoute == screen.route
                 val iconColor by animateColorAsState(
                     targetValue = if (isSelected) Color.White else Color(0xFF6E6E82),

@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -122,14 +123,18 @@ import com.example.ui.theme.WarningAmber
 fun HomeScreen(
     viewModel: HomeViewModel,
     onNavigateToReceivers: () -> Unit,
+    onNavigateToPlayer: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val telemetry by viewModel.telemetry.collectAsState()
     val prefs by viewModel.userPreferences.collectAsState()
+    val playerUiState by viewModel.playerUiState.collectAsState()
     val activeSafetyProcess by viewModel.activeSafetyProcess.collectAsState()
     val safetyNotice by viewModel.safetyNotice.collectAsState()
     val localIp = remember { NetworkUtils.getLocalIpAddress(context) ?: "Checking Wi-Fi..." }
+
+    val isPlayerTransmitting = playerUiState.playerState == com.example.model.PlayerState.PLAYING
 
     // MediaProjection permission launcher for Internal Audio
     val mediaProjectionLauncher = rememberLauncherForActivityResult(
@@ -165,14 +170,13 @@ fun HomeScreen(
 
     val isStreaming = telemetry.streamingState == StreamingState.STREAMING
     val isConnecting = telemetry.streamingState == StreamingState.CONNECTING || telemetry.streamingState == StreamingState.RECONNECTING
-    val isBrowserActive = activeSafetyProcess == ActiveStreamProcess.BROWSER_STREAM && (isStreaming || isConnecting)
 
     val statusColor by animateColorAsState(
-        targetValue = when (telemetry.streamingState) {
-            StreamingState.STREAMING -> StreamEmerald
-            StreamingState.CONNECTING, StreamingState.RECONNECTING -> WarningAmber
-            StreamingState.ERROR, StreamingState.DISCONNECTED -> ErrorCoral
-            StreamingState.IDLE -> MaterialTheme.colorScheme.primary
+        targetValue = when {
+            isPlayerTransmitting || telemetry.streamingState == StreamingState.STREAMING -> StreamEmerald
+            telemetry.streamingState == StreamingState.CONNECTING || telemetry.streamingState == StreamingState.RECONNECTING -> WarningAmber
+            telemetry.streamingState == StreamingState.ERROR || telemetry.streamingState == StreamingState.DISCONNECTED -> ErrorCoral
+            else -> MaterialTheme.colorScheme.primary
         },
         label = "statusColor"
     )
@@ -286,7 +290,7 @@ fun HomeScreen(
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(
-                            text = telemetry.streamingState.name,
+                            text = if (isPlayerTransmitting) "ACTIVE (DIRECT)" else telemetry.streamingState.name,
                             color = statusColor,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
@@ -648,20 +652,48 @@ fun HomeScreen(
                     }
                 }
 
-                if (prefs.audioSource == AudioSourceType.INTERNAL_AUDIO) {
-                    Text(
-                        text = "📱 System Audio: Transmits audio from music and media apps playing on your phone.",
-                        fontSize = 11.sp,
-                        color = StreamEmerald,
-                        modifier = Modifier.padding(top = 2.dp, start = 4.dp)
-                    )
-                } else {
-                    Text(
-                        text = "🎤 Microphone: Transmits ambient room audio through the physical phone microphone.",
-                        fontSize = 11.sp,
-                        color = WarningAmber,
-                        modifier = Modifier.padding(top = 2.dp, start = 4.dp)
-                    )
+                // Direct Local Music Player Shortcut Pill
+                Surface(
+                    color = Color(0xFF14141C),
+                    border = BorderStroke(1.dp, Color(0xFF252535)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { onNavigateToPlayer() }
+                        .testTag("home_go_to_player_shortcut")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Audiotrack,
+                                contentDescription = null,
+                                tint = StreamEmerald,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = "Play local files & folders directly",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = TextSecondary
+                            )
+                        }
+                        Text(
+                            text = "Open Player →",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = StreamEmerald
+                        )
+                    }
                 }
 
                 // Silence Phone Speaker Toggle (Compact row with crisp switch)
@@ -704,7 +736,99 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    if (isStreaming || isConnecting) {
+                    if (isPlayerTransmitting) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                color = StreamEmerald.copy(alpha = 0.12f),
+                                border = BorderStroke(1.dp, StreamEmerald.copy(alpha = 0.4f)),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.Audiotrack,
+                                        contentDescription = null,
+                                        tint = StreamEmerald,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Direct Transmission Active",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp,
+                                            color = StreamEmerald
+                                        )
+                                        Text(
+                                            text = playerUiState.currentTrack?.title ?: "Playing local music via UDP",
+                                            fontSize = 11.sp,
+                                            color = Color.White,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Button(
+                                        onClick = { viewModel.stopPlayerDirectTransmission() },
+                                        colors = ButtonDefaults.buttonColors(containerColor = ErrorCoral),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                        modifier = Modifier.height(34.dp)
+                                    ) {
+                                        Text("Stop", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+
+                            // Start Screen Capture button (immediately stops direct player transmission)
+                            Button(
+                                onClick = {
+                                    val hasAudioPermission = ContextCompat.checkSelfPermission(
+                                        context,
+                                        android.Manifest.permission.RECORD_AUDIO
+                                    ) == PackageManager.PERMISSION_GRANTED
+
+                                    if (!hasAudioPermission) {
+                                        recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                                        return@Button
+                                    }
+
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                        val mediaProjectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                                        mediaProjectionLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
+                                    } else {
+                                        Toast.makeText(context, "Internal audio requires Android 10+", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(46.dp)
+                                    .testTag("start_streaming_button"),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.PlayArrow,
+                                    contentDescription = "Start",
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Start Screen Capture (Closes Direct)",
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.Black,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    } else if (isStreaming || isConnecting) {
                         Button(
                             onClick = { viewModel.stopStreaming(context) },
                             modifier = Modifier
@@ -773,23 +897,19 @@ fun HomeScreen(
                                 .height(46.dp)
                                 .testTag("start_streaming_button"),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isBrowserActive) WarningAmber else Color.White
+                                containerColor = Color.White
                             ),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(
-                                imageVector = if (isBrowserActive) Icons.Outlined.Security else Icons.Outlined.PlayArrow,
+                                imageVector = Icons.Outlined.PlayArrow,
                                 contentDescription = "Start",
                                 tint = Color.Black,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (isBrowserActive) {
-                                    "Switch Stream (Auto-stops Browser)"
-                                } else {
-                                    "Start Streaming"
-                                },
+                                text = "Start Streaming",
                                 fontWeight = FontWeight.Bold,
                                 color = Color.Black,
                                 maxLines = 1,

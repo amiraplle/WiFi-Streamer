@@ -16,6 +16,9 @@ object AppContainer {
     @Volatile
     private var preferencesInstance: UserPreferencesRepository? = null
 
+    @Volatile
+    private var playerManagerInstance: com.example.domain.player.LocalAudioPlayerManager? = null
+
     fun getDatabase(context: Context): AppDatabase {
         return databaseInstance ?: synchronized(this) {
             databaseInstance ?: Room.databaseBuilder(
@@ -31,6 +34,15 @@ object AppContainer {
             preferencesInstance ?: UserPreferencesRepository(context.applicationContext).also {
                 preferencesInstance = it
             }
+        }
+    }
+
+    fun getPlayerManager(context: Context): com.example.domain.player.LocalAudioPlayerManager {
+        return playerManagerInstance ?: synchronized(this) {
+            playerManagerInstance ?: com.example.domain.player.LocalAudioPlayerManager(
+                context.applicationContext,
+                getPreferences(context)
+            ).also { playerManagerInstance = it }
         }
     }
 }

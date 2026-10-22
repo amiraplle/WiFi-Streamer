@@ -474,36 +474,6 @@ class AudioCaptureManager(
         return false
     }
 
-    @Volatile
-    private var lastExternalPcmTimeMs: Long = 0L
-
-    /**
-     * Feeds digital PCM audio directly into the transmitter.
-     * Bypasses all microphone hardware.
-     */
-    fun feedExternalPcm(buffer: ByteArray, length: Int, isSilent: Boolean = false) {
-        if (!isRunning.get() || length <= 0) return
-        lastExternalPcmTimeMs = System.currentTimeMillis()
-
-        if (!bitPerfectMode && !isSilent) {
-            val copy = buffer.copyOf(length)
-            PcmAudioProcessor.processInPlace(
-                buffer = copy,
-                length = length,
-                bitDepth = currentFormat.bitDepth,
-                volumePercent = volumePercent,
-                isMuted = isMuted,
-                dspEngine = dspEngine,
-                channels = currentFormat.channelCount,
-                bitPerfectMode = bitPerfectMode,
-                ditherEnabled = ditherEnabled
-            )
-            onAudioChunkReady(copy, length, false)
-        } else {
-            onAudioChunkReady(buffer, length, isSilent)
-        }
-    }
-
     fun stopCapture() {
         isRunning.set(false)
         captureThread?.interrupt()
@@ -522,18 +492,12 @@ class AudioCaptureManager(
         val intervalMs = ((chunkSize.toLong() * 1000L) / (format.sampleRate * format.frameSizeBytes)).coerceIn(10L, 50L)
         val chunk = ByteArray(chunkSize)
         while (isRunning.get()) {
-            val now = System.currentTimeMillis()
-            // If external digital PCM is actively playing, pause keep-alive silence
-            val isReceivingExternalPcm = (now - lastExternalPcmTimeMs) < 1500L
-
-            // For BROWSER_STREAM, PacedAudioTransmitter already transmits paced comfort silence
-            // when ringBuffer runs dry. Do not pollute the ring buffer with fake silence chunks!
-            if (!isReceivingExternalPcm && keepAliveSilence && currentSource != AudioSourceType.BROWSER_STREAM) {
+            if (keepAliveSilence) {
                 onAudioChunkReady(chunk, chunkSize, true)
             }
 
             try {
-                Thread.sleep(if (currentSource == AudioSourceType.BROWSER_STREAM) 100L else intervalMs)
+                Thread.sleep(intervalMs)
             } catch (_: InterruptedException) {
                 break
             }

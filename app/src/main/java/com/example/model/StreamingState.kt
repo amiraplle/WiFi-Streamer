@@ -21,7 +21,6 @@ enum class CaptureStatus {
 enum class AudioSourceType(val displayName: String, val requiresScreenCapture: Boolean = false) {
     INTERNAL_AUDIO("System Audio (Android OS Cast)", true),
     MICROPHONE("Microphone / Line-In", false),
-    BROWSER_STREAM("In-App Browser Stream", false),
     DIRECT_AUDIO("Direct Audio (No Screen Capture)", false)
 }
 

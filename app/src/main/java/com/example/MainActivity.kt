@@ -37,22 +37,25 @@ import android.os.Build
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.example.service.StreamingService
-import com.example.ui.browser.BrowserScreen
-import com.example.ui.browser.BrowserViewModel
 import com.example.ui.components.StudioBottomNavigation
 import com.example.ui.home.HomeScreen
 import com.example.ui.home.HomeViewModel
 import com.example.ui.navigation.Screen
+import com.example.ui.player.MiniPlayerBar
+import com.example.ui.player.PlayerScreen
+import com.example.ui.player.PlayerViewModel
 import com.example.ui.receivers.ReceiversScreen
 import com.example.ui.receivers.ReceiversViewModel
 import com.example.ui.settings.SettingsScreen
 import com.example.ui.settings.SettingsViewModel
 import com.example.ui.theme.C3StreamerTheme
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Column
 
 class MainActivity : ComponentActivity() {
 
     private val homeViewModel: HomeViewModel by viewModels()
-    private val browserViewModel: BrowserViewModel by viewModels()
+    private val playerViewModel: PlayerViewModel by viewModels()
     private val receiversViewModel: ReceiversViewModel by viewModels()
     private val settingsViewModel: SettingsViewModel by viewModels()
 
@@ -79,7 +82,7 @@ class MainActivity : ComponentActivity() {
             C3StreamerTheme {
                 MainApp(
                     homeViewModel = homeViewModel,
-                    browserViewModel = browserViewModel,
+                    playerViewModel = playerViewModel,
                     receiversViewModel = receiversViewModel,
                     settingsViewModel = settingsViewModel
                 )
@@ -114,7 +117,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainApp(
     homeViewModel: HomeViewModel,
-    browserViewModel: BrowserViewModel,
+    playerViewModel: PlayerViewModel,
     receiversViewModel: ReceiversViewModel,
     settingsViewModel: SettingsViewModel
 ) {
@@ -126,19 +129,47 @@ fun MainApp(
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            StudioBottomNavigation(
-                screens = Screen.items,
-                currentRoute = currentRoute,
-                onScreenSelected = { screen ->
-                    navController.navigate(screen.route) {
-                        popUpTo(navController.graph.findStartDestination().id) {
-                            saveState = true
-                        }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
+            Column {
+                if (currentRoute != Screen.Player.route) {
+                    val playerUiState by playerViewModel.uiState.collectAsState()
+                    MiniPlayerBar(
+                        uiState = playerUiState,
+                        onBarClick = {
+                            if (currentRoute != Screen.Player.route) {
+                                navController.navigate(Screen.Player.route) {
+                                    popUpTo(Screen.Home.route) { inclusive = false }
+                                    launchSingleTop = true
+                                }
+                            }
+                        },
+                        onTogglePlayPause = { playerViewModel.togglePlayPause() },
+                        onNext = { playerViewModel.playNext() }
+                    )
                 }
-            )
+                StudioBottomNavigation(
+                    screens = Screen.items,
+                    currentRoute = currentRoute,
+                    onScreenSelected = { screen ->
+                        if (currentRoute == screen.route) return@StudioBottomNavigation
+                        if (screen == Screen.Home) {
+                            val popped = navController.popBackStack(Screen.Home.route, inclusive = false)
+                            if (!popped) {
+                                navController.navigate(Screen.Home.route) {
+                                    popUpTo(Screen.Home.route) { inclusive = false }
+                                    launchSingleTop = true
+                                }
+                            }
+                        } else {
+                            navController.navigate(screen.route) {
+                                popUpTo(Screen.Home.route) {
+                                    inclusive = false
+                                }
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+                )
+            }
         }
     ) { innerPadding ->
         NavHost(
@@ -155,30 +186,84 @@ fun MainApp(
                     viewModel = homeViewModel,
                     onNavigateToReceivers = {
                         navController.navigate(Screen.Receivers.route) {
+                            popUpTo(Screen.Home.route) { inclusive = false }
                             launchSingleTop = true
                         }
-                    }
-                )
-            }
-            composable(Screen.Browser.route) {
-                BrowserScreen(
-                    viewModel = browserViewModel
-                )
-            }
-            composable(Screen.Receivers.route) {
-                ReceiversScreen(
-                    viewModel = receiversViewModel,
-                    onReceiverSelected = {
-                        navController.navigate(Screen.Home.route) {
+                    },
+                    onNavigateToPlayer = {
+                        navController.navigate(Screen.Player.route) {
                             popUpTo(Screen.Home.route) { inclusive = false }
                             launchSingleTop = true
                         }
                     }
                 )
             }
+            composable(Screen.Player.route) {
+                BackHandler {
+                    if (!navController.popBackStack(Screen.Home.route, inclusive = false)) {
+                        navController.navigate(Screen.Home.route) {
+                            popUpTo(Screen.Home.route) { inclusive = false }
+                            launchSingleTop = true
+                        }
+                    }
+                }
+                PlayerScreen(
+                    viewModel = playerViewModel,
+                    onNavigateToSettings = {
+                        navController.navigate(Screen.Settings.route) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onNavigateBack = {
+                        if (!navController.popBackStack(Screen.Home.route, inclusive = false)) {
+                            navController.navigate(Screen.Home.route) {
+                                popUpTo(Screen.Home.route) { inclusive = false }
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+                )
+            }
+            composable(Screen.Receivers.route) {
+                BackHandler {
+                    if (!navController.popBackStack(Screen.Home.route, inclusive = false)) {
+                        navController.navigate(Screen.Home.route) {
+                            popUpTo(Screen.Home.route) { inclusive = false }
+                            launchSingleTop = true
+                        }
+                    }
+                }
+                ReceiversScreen(
+                    viewModel = receiversViewModel,
+                    onReceiverSelected = {
+                        if (!navController.popBackStack(Screen.Home.route, inclusive = false)) {
+                            navController.navigate(Screen.Home.route) {
+                                popUpTo(Screen.Home.route) { inclusive = false }
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+                )
+            }
             composable(Screen.Settings.route) {
+                BackHandler {
+                    if (!navController.popBackStack()) {
+                        navController.navigate(Screen.Home.route) {
+                            popUpTo(Screen.Home.route) { inclusive = false }
+                            launchSingleTop = true
+                        }
+                    }
+                }
                 SettingsScreen(
-                    viewModel = settingsViewModel
+                    viewModel = settingsViewModel,
+                    onNavigateBack = {
+                        if (!navController.popBackStack()) {
+                            navController.navigate(Screen.Home.route) {
+                                popUpTo(Screen.Home.route) { inclusive = false }
+                                launchSingleTop = true
+                            }
+                        }
+                    }
                 )
             }
         }

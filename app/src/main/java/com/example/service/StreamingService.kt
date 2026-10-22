@@ -217,7 +217,7 @@ class StreamingService : Service() {
         }
     }
 
-    private var activeStreamSource: String? = null
+    var activeStreamSource: String? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action ?: ACTION_START
@@ -235,13 +235,15 @@ class StreamingService : Service() {
                 if (data != null) projectionIntentData = data
 
                 val prefs = AppContainer.getPreferences(this).userPreferences.value
-                val effectiveSource = when {
-                    activeStreamSource == "browser" -> AudioSourceType.BROWSER_STREAM
-                    else -> prefs.audioSource
-                }
+                val effectiveSource = prefs.audioSource
 
                 startForegroundWithNotification(effectiveSource)
                 startStreamingPipeline(effectiveSource)
+            }
+            ACTION_START_DIRECT -> {
+                activeStreamSource = "DIRECT_AUDIO"
+                startForegroundWithNotification(AudioSourceType.DIRECT_AUDIO)
+                startStreamingPipeline(AudioSourceType.DIRECT_AUDIO)
             }
             ACTION_STOP -> {
                 stopStreaming()
@@ -367,6 +369,19 @@ class StreamingService : Service() {
             val projData = projectionIntentData
             val projCode = projectionResultCode
             if (projData != null && projCode != 0) {
+                // In Android 14+ (UPSIDE_DOWN_CAKE), the Foreground Service MUST ALREADY be active with
+                // FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION before MediaProjectionManager.getMediaProjection can be called!
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    try {
+                        val fullType = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK else 0) or
+                            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION else 0)
+                        val n = buildNotification(getString(R.string.status_streaming), "Internal audio capture active")
+                        ServiceCompat.startForeground(this, NOTIFICATION_ID, n, fullType)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Foreground service upgrade exception: ${e.message}")
+                    }
+                }
+
                 try {
                     val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                     mediaProjection = mpManager.getMediaProjection(projCode, projData)
@@ -384,18 +399,6 @@ class StreamingService : Service() {
                     }, null)
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to get MediaProjection: ${e.message}", e)
-                }
-
-                // If on Android 14+ and media projection is active, upgrade FGS type
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    try {
-                        val fullType = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
-                            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION else 0)
-                        val n = buildNotification(getString(R.string.status_streaming), "Internal audio capture active")
-                        ServiceCompat.startForeground(this, NOTIFICATION_ID, n, fullType)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Upgrade foreground type exception: ${e.message}")
-                    }
                 }
             }
         }
@@ -566,10 +569,6 @@ class StreamingService : Service() {
     fun setMuted(muted: Boolean) {
         captureManager?.isMuted = muted
         _telemetry.value = _telemetry.value.copy(isMuted = muted)
-    }
-
-    fun feedExternalPcm(bytes: ByteArray) {
-        captureManager?.feedExternalPcm(bytes, bytes.size, isSilent = false)
     }
 
     fun updateDspSettings(prefs: UserPreferences) {
@@ -802,9 +801,16 @@ class StreamingService : Service() {
         super.onDestroy()
     }
 
+    fun writeDirectAudio(src: ByteArray, offset: Int, length: Int): Int {
+        return ringBuffer.write(src, offset, length)
+    }
+
+    fun getRingBufferFreeSpace(): Int = ringBuffer.capacity - ringBuffer.available
+
     companion object {
         const val NOTIFICATION_ID = 50005
         const val ACTION_START = "com.example.service.action.START"
+        const val ACTION_START_DIRECT = "com.example.service.action.START_DIRECT"
         const val ACTION_STOP = "com.example.service.action.STOP"
         const val ACTION_RECONNECT = "com.example.service.action.RECONNECT"
         const val ACTION_TOGGLE_MUTE = "com.example.service.action.TOGGLE_MUTE"
@@ -821,5 +827,12 @@ class StreamingService : Service() {
 
         var instance: StreamingService? = null
             private set
+
+        fun startDirectStreaming(context: Context) {
+            val intent = Intent(context, StreamingService::class.java).apply {
+                action = ACTION_START_DIRECT
+            }
+            ContextCompat.startForegroundService(context, intent)
+        }
     }
 }

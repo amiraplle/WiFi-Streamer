@@ -72,7 +72,6 @@ class UserPreferencesRepository(context: Context) {
                     AudioSourceType.INTERNAL_AUDIO.name -> AudioSourceType.INTERNAL_AUDIO
                     AudioSourceType.MICROPHONE.name -> AudioSourceType.MICROPHONE
                     AudioSourceType.DIRECT_AUDIO.name -> AudioSourceType.DIRECT_AUDIO
-                    AudioSourceType.BROWSER_STREAM.name -> AudioSourceType.BROWSER_STREAM
                     else -> AudioSourceType.INTERNAL_AUDIO
                 }
             },
@@ -124,6 +123,10 @@ class UserPreferencesRepository(context: Context) {
             .putBoolean("user_explicit_internal_audio", source == AudioSourceType.INTERNAL_AUDIO)
             .apply()
         _userPreferences.value = _userPreferences.value.copy(audioSource = source)
+    }
+
+    fun updateAudioFormat(format: AudioStreamFormat) {
+        updateAudioFormat(format.sampleRate, format.bitDepth, format.channelCount)
     }
 
     fun updateAudioFormat(sampleRate: Int, bitDepth: Int, channelCount: Int) {

@@ -27,6 +27,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val prefsRepo = AppContainer.getPreferences(application)
     val userPreferences = prefsRepo.userPreferences
 
+    private val playerManager = AppContainer.getPlayerManager(application)
+    val playerUiState = playerManager.uiState
+
     private val _telemetry = MutableStateFlow(StreamTelemetry())
     val telemetry: StateFlow<StreamTelemetry> = _telemetry.asStateFlow()
 
@@ -63,7 +66,19 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startStreaming(context: Context, resultCode: Int, data: Intent?) {
+        // Immediately close / stop direct player transmission so screen capture has exclusive access
+        try {
+            playerManager.stopPlayback()
+        } catch (_: Exception) {}
+
+        // Ensure preference reflects System Audio
+        prefsRepo.updateAudioSource(AudioSourceType.INTERNAL_AUDIO)
+
         StreamSafetyCoordinator.startSystemStream(context, resultCode, data)
+    }
+
+    fun stopPlayerDirectTransmission() {
+        playerManager.stopPlayback()
     }
 
     fun stopStreaming(context: Context) {
