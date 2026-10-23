@@ -1,5 +1,6 @@
 package com.example.ui.player
 
+import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -127,9 +128,24 @@ fun PlayerScreen(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { treeUri ->
         if (treeUri != null) {
-            Toast.makeText(context, "Scanning folder for music...", Toast.LENGTH_SHORT).show()
-            viewModel.loadFolder(treeUri) { count ->
-                Toast.makeText(context, "Loaded $count songs from folder", Toast.LENGTH_SHORT).show()
+            try {
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        treeUri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: Throwable) {}
+
+                Toast.makeText(context, "Scanning folder for music...", Toast.LENGTH_SHORT).show()
+                viewModel.loadFolder(treeUri) { count ->
+                    Toast.makeText(
+                        context,
+                        if (count > 0) "Loaded $count songs from folder" else "No audio files found in folder",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            } catch (e: Throwable) {
+                Toast.makeText(context, "Could not load folder: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -187,23 +203,36 @@ fun PlayerScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
+                ) {
                     Text(
                         text = "Hi-Res Player",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = TextPrimary
+                        color = TextPrimary,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "Direct UDP Stream to ESP32 DAC",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary,
-                        fontSize = 11.sp
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
                 // Add Music Actions
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Surface(
                         color = Color(0xFF1E1E28),
                         border = BorderStroke(1.dp, Color(0xFF323246)),
@@ -222,12 +251,12 @@ fun PlayerScreen(
                             .testTag("add_files_button")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Icon(Icons.Outlined.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
-                            Text("Files", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Icon(Icons.Outlined.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
+                            Text("Files", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
                         }
                     }
 
@@ -237,16 +266,22 @@ fun PlayerScreen(
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
-                            .clickable { pickFolderLauncher.launch(null) }
+                            .clickable {
+                                try {
+                                    pickFolderLauncher.launch(null)
+                                } catch (e: Throwable) {
+                                    Toast.makeText(context, "Folder picker unavailable", Toast.LENGTH_SHORT).show()
+                                }
+                            }
                             .testTag("add_folder_button")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Icon(Icons.Outlined.FolderOpen, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
-                            Text("Folder", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Icon(Icons.Outlined.FolderOpen, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
+                            Text("Folder", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
                         }
                     }
                 }
@@ -328,13 +363,19 @@ fun PlayerScreen(
                     }
 
                     // Track Title & Artist
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp)
+                    ) {
                         Text(
                             text = currentTrack?.title ?: "Select a track to play",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary,
                             maxLines = 1,
+                            softWrap = false,
                             overflow = TextOverflow.Ellipsis,
                             textAlign = TextAlign.Center
                         )
@@ -344,56 +385,67 @@ fun PlayerScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center
                         )
                     }
 
-                    // Format Badge Row (Source Audio -> ESP32 Output Format)
+                    // Format Badge Row (Source Audio -> ESP32 Output Format) - Compact, balanced 50/50, zero text wrapping
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Source Format Badge
                         Surface(
+                            modifier = Modifier.weight(1f),
                             color = Color(0xFF1A1A24),
                             shape = RoundedCornerShape(8.dp),
                             border = BorderStroke(1.dp, Color(0xFF2E2E3E))
                         ) {
                             Text(
-                                text = "Source: ${uiState.sourceFormatInfo}",
+                                text = "SRC: ${uiState.sourceFormatInfo}",
                                 color = Color(0xFFA0A0B8),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                             )
                         }
-
-                        Spacer(modifier = Modifier.width(6.dp))
 
                         // Target ESP32 Format Badge with direct in-place Dropdown
                         var formatMenuExpanded by remember { mutableStateOf(false) }
 
-                        Box {
+                        Box(modifier = Modifier.weight(1f)) {
                             Surface(
                                 color = StreamEmerald.copy(alpha = 0.14f),
                                 shape = RoundedCornerShape(8.dp),
                                 border = BorderStroke(1.dp, StreamEmerald.copy(alpha = 0.4f)),
                                 modifier = Modifier
+                                    .fillMaxWidth()
                                     .clip(RoundedCornerShape(8.dp))
                                     .clickable { formatMenuExpanded = true }
                                     .testTag("player_format_selector_badge")
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Text(
                                         text = "ESP32: ${uiState.outputFormatInfo}",
                                         color = StreamEmerald,
                                         fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
                                     )
                                     Icon(
                                         imageVector = Icons.Outlined.ArrowDropDown,
@@ -625,6 +677,9 @@ fun PlayerScreen(
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 11.sp,
                                         letterSpacing = 0.5.sp,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
                                         color = if (isPlaying) StreamEmerald
                                                 else if (uiState.playerState == PlayerState.PAUSED) WarningAmber
                                                 else Color(0xFFA0A0B8)
@@ -640,6 +695,8 @@ fun PlayerScreen(
                                         color = if (isPlaying) StreamEmerald else Color(0xFF8E8E9E),
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }
@@ -674,7 +731,10 @@ fun PlayerScreen(
                                     text = if (isPlaying) "Stop Transmission" else "Start Direct Transmission",
                                     fontWeight = FontWeight.Bold,
                                     color = Color.Black,
-                                    fontSize = 12.sp
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -829,6 +889,7 @@ fun PlayerScreen(
                                     fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
                                     color = if (isCurrent) Color.White else TextPrimary,
                                     maxLines = 1,
+                                    softWrap = false,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -837,6 +898,7 @@ fun PlayerScreen(
                                         style = MaterialTheme.typography.labelSmall,
                                         color = TextSecondary,
                                         maxLines = 1,
+                                        softWrap = false,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 }
@@ -849,6 +911,8 @@ fun PlayerScreen(
                             style = MaterialTheme.typography.labelSmall,
                             color = if (isCurrent) StreamEmerald else TextSecondary,
                             fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false,
                             modifier = Modifier.padding(start = 8.dp)
                         )
                     }

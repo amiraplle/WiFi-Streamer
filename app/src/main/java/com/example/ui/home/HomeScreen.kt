@@ -241,7 +241,7 @@ fun HomeScreen(
                             )
                         }
                         Spacer(modifier = Modifier.width(10.dp))
-                        Column {
+                        Column(modifier = Modifier.weight(1f).padding(end = 6.dp)) {
                             val deviceName = when {
                                 prefs.targetHost.contains("s3", ignoreCase = true) -> "ESP32-S3"
                                 prefs.targetHost.contains("c3", ignoreCase = true) -> "ESP32-C3"
@@ -252,7 +252,10 @@ fun HomeScreen(
                                 text = titleText,
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = TextPrimary
+                                color = TextPrimary,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -270,14 +273,18 @@ fun HomeScreen(
                                     style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.Medium,
                                     fontSize = 11.sp,
-                                    color = TextSecondary
+                                    color = TextSecondary,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = "(Copy)",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontSize = 10.sp,
-                                    color = Color(0xFFA0A0B8)
+                                    color = Color(0xFFA0A0B8),
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -295,6 +302,8 @@ fun HomeScreen(
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             fontSize = 10.sp,
+                            maxLines = 1,
+                            softWrap = false,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }

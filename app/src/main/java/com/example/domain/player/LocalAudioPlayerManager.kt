@@ -1,6 +1,7 @@
 package com.example.domain.player
 
 import android.content.Context
+import android.content.Intent
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -10,6 +11,7 @@ import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.util.Log
+import kotlinx.coroutines.withContext
 import com.example.data.preferences.UserPreferencesRepository
 import com.example.model.AudioTrack
 import com.example.model.PlayerState
@@ -493,47 +495,100 @@ class LocalAudioPlayerManager(
 
     /**
      * Scans an entire folder picked by user via Storage Access Framework using DocumentsContract.
+     * Recursively traverses subfolders up to 3 levels deep and safely extracts audio files.
      */
     fun loadFromFolder(folderUri: Uri, onComplete: (Int) -> Unit) {
-        playerScope.launch {
+        playerScope.launch(Dispatchers.IO) {
             val audioExtensions = setOf("mp3", "flac", "wav", "m4a", "ogg", "aac", "opus")
             val discovered = mutableListOf<AudioTrack>()
 
             try {
-                val treeDocId = DocumentsContract.getTreeDocumentId(folderUri)
-                val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(folderUri, treeDocId)
-                val projection = arrayOf(
-                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                    DocumentsContract.Document.COLUMN_MIME_TYPE
-                )
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        folderUri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: Throwable) {}
 
-                context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
-                    val idCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-                    val nameCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-                    val mimeCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
-
-                    while (cursor.moveToNext()) {
-                        val docId = cursor.getString(idCol)
-                        val name = cursor.getString(nameCol) ?: ""
-                        val mime = cursor.getString(mimeCol) ?: ""
-                        val ext = name.substringAfterLast(".", "").lowercase()
-
-                        if (ext in audioExtensions || mime.startsWith("audio/")) {
-                            val fileUri = DocumentsContract.buildDocumentUriUsingTree(folderUri, docId)
-                            val track = extractTrackMetadata(fileUri, name)
-                            discovered.add(track)
-                        }
+                val rootDocId = try {
+                    if (DocumentsContract.isDocumentUri(context, folderUri)) {
+                        DocumentsContract.getDocumentId(folderUri)
+                    } else {
+                        DocumentsContract.getTreeDocumentId(folderUri)
+                    }
+                } catch (_: Throwable) {
+                    try {
+                        DocumentsContract.getTreeDocumentId(folderUri)
+                    } catch (_: Throwable) {
+                        null
                     }
                 }
-            } catch (e: Exception) {
+
+                if (rootDocId != null) {
+                    scanDirectory(folderUri, rootDocId, discovered, audioExtensions, depth = 0, maxDepth = 3)
+                }
+            } catch (e: Throwable) {
                 Log.e(TAG, "Error scanning folder: ${e.message}", e)
             }
 
             if (discovered.isNotEmpty()) {
                 addTracks(discovered, playImmediately = false)
             }
-            onComplete(discovered.size)
+
+            // Always dispatch UI callback / toast on Main thread to prevent background thread crash
+            withContext(Dispatchers.Main) {
+                try {
+                    onComplete(discovered.size)
+                } catch (e: Throwable) {
+                    Log.e(TAG, "onComplete callback error: ${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun scanDirectory(
+        treeUri: Uri,
+        parentDocId: String,
+        discovered: MutableList<AudioTrack>,
+        audioExtensions: Set<String>,
+        depth: Int,
+        maxDepth: Int
+    ) {
+        if (depth > maxDepth || discovered.size >= 1000) return
+
+        try {
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId)
+            val projection = arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE
+            )
+
+            context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+                val idCol = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                val nameCol = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                val mimeCol = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+
+                while (cursor.moveToNext()) {
+                    val docId = if (idCol >= 0) cursor.getString(idCol) else null ?: continue
+                    val name = (if (nameCol >= 0) cursor.getString(nameCol) else null) ?: "Audio File"
+                    val mime = (if (mimeCol >= 0) cursor.getString(mimeCol) else null) ?: ""
+
+                    if (mime == DocumentsContract.Document.MIME_TYPE_DIR || mime == "vnd.android.document/directory") {
+                        // Recursively scan subfolder
+                        scanDirectory(treeUri, docId, discovered, audioExtensions, depth + 1, maxDepth)
+                    } else {
+                        val ext = name.substringAfterLast(".", "").lowercase()
+                        if (ext in audioExtensions || mime.startsWith("audio/")) {
+                            val fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+                            val track = extractTrackMetadata(fileUri, name)
+                            discovered.add(track)
+                        }
+                    }
+                }
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "Failed scanning directory $parentDocId: ${e.message}")
         }
     }
 
@@ -544,26 +599,35 @@ class LocalAudioPlayerManager(
         var durationMs = 0L
         var mimeType = "audio/*"
 
+        var retriever: MediaMetadataRetriever? = null
         try {
-            val retriever = MediaMetadataRetriever()
-            retriever.setDataSource(context, uri)
-            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)?.let {
-                if (it.isNotBlank()) title = it
+            // Safely open ParcelFileDescriptor to ensure readable permission without native crashes
+            context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                retriever = MediaMetadataRetriever()
+                retriever?.setDataSource(pfd.fileDescriptor)
+                retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)?.let {
+                    if (it.isNotBlank()) title = it
+                }
+                retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)?.let {
+                    if (it.isNotBlank()) artist = it
+                }
+                retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)?.let {
+                    if (it.isNotBlank()) album = it
+                }
+                retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.let {
+                    durationMs = it
+                }
+                retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)?.let {
+                    mimeType = it
+                }
             }
-            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)?.let {
-                if (it.isNotBlank()) artist = it
-            }
-            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)?.let {
-                if (it.isNotBlank()) album = it
-            }
-            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.let {
-                durationMs = it
-            }
-            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)?.let {
-                mimeType = it
-            }
-            retriever.release()
-        } catch (_: Exception) {}
+        } catch (_: Throwable) {
+            // Safely ignore metadata extraction errors, fallback to filename and 0 duration
+        } finally {
+            try {
+                retriever?.release()
+            } catch (_: Throwable) {}
+        }
 
         return AudioTrack(
             id = uri.toString(),
