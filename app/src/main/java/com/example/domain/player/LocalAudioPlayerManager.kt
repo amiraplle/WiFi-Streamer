@@ -2,6 +2,9 @@ package com.example.domain.player
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import java.io.ByteArrayOutputStream
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -598,6 +601,7 @@ class LocalAudioPlayerManager(
         var album = ""
         var durationMs = 0L
         var mimeType = "audio/*"
+        var artworkBytes: ByteArray? = null
 
         var retriever: MediaMetadataRetriever? = null
         try {
@@ -620,6 +624,9 @@ class LocalAudioPlayerManager(
                 retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)?.let {
                     mimeType = it
                 }
+                // Extract real embedded album artwork
+                val rawArt = retriever?.embeddedPicture
+                artworkBytes = processArtwork(rawArt)
             }
         } catch (_: Throwable) {
             // Safely ignore metadata extraction errors, fallback to filename and 0 duration
@@ -636,7 +643,31 @@ class LocalAudioPlayerManager(
             album = album,
             durationMs = durationMs,
             uri = uri,
-            mimeType = mimeType
+            mimeType = mimeType,
+            artworkBytes = artworkBytes
         )
+    }
+
+    private fun processArtwork(rawBytes: ByteArray?): ByteArray? {
+        if (rawBytes == null || rawBytes.isEmpty()) return null
+        return try {
+            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, opts)
+            val maxDim = maxOf(opts.outWidth, opts.outHeight)
+            if (maxDim <= 0) return null
+
+            var sample = 1
+            while (maxDim / sample > 512) {
+                sample *= 2
+            }
+            val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sample }
+            val bmp = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, decodeOpts) ?: return null
+            val baos = ByteArrayOutputStream()
+            bmp.compress(Bitmap.CompressFormat.JPEG, 85, baos)
+            bmp.recycle()
+            baos.toByteArray()
+        } catch (_: Throwable) {
+            rawBytes.takeIf { it.size < 400_000 }
+        }
     }
 }

@@ -1,9 +1,13 @@
 package com.example.ui.player
 
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -154,29 +158,6 @@ fun PlayerScreen(
     val isPlaying = uiState.playerState == PlayerState.PLAYING
     val isBuffering = uiState.playerState == PlayerState.BUFFERING
 
-    // Disc rotation animation
-    val infiniteTransition = rememberInfiniteTransition(label = "disc_anim")
-    val discRotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = if (isPlaying) 360f else 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 8000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "rotation"
-    )
-
-    // Pulsing halo glow when playing
-    val haloScale by infiniteTransition.animateFloat(
-        initialValue = 0.95f,
-        targetValue = if (isPlaying) 1.05f else 0.98f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1500, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "halo"
-    )
-
     // Scrubbing slider position
     var isScrubbing by remember { mutableStateOf(false) }
     var scrubPositionMs by remember { mutableFloatStateOf(0f) }
@@ -307,57 +288,130 @@ fun PlayerScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // Animated Vinyl Disc / Waveform Visualizer
+                    // =========================================================================
+                    // REAL ALBUM ARTWORK HERO CARD
+                    // =========================================================================
+                    val albumArtBitmap = remember(currentTrack?.id, currentTrack?.artworkBytes) {
+                        currentTrack?.artworkBytes?.let { bytes ->
+                            try {
+                                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                            } catch (_: Throwable) {
+                                null
+                            }
+                        }
+                    }
+
                     Box(
                         modifier = Modifier
-                            .size(140.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.radialGradient(
-                                    colors = listOf(
-                                        if (isPlaying) StreamEmerald.copy(alpha = 0.25f) else Color(0xFF22222E),
-                                        Color(0xFF0F0F14)
-                                    )
-                                )
+                            .size(180.dp)
+                            .shadow(
+                                elevation = if (isPlaying) 16.dp else 6.dp,
+                                shape = RoundedCornerShape(18.dp),
+                                ambientColor = if (isPlaying) StreamEmerald.copy(alpha = 0.4f) else Color.Black,
+                                spotColor = if (isPlaying) StreamEmerald.copy(alpha = 0.6f) else Color.Black
                             )
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color(0xFF14141E))
                             .border(
                                 1.5.dp,
-                                if (isPlaying) StreamEmerald.copy(alpha = 0.4f) else Color(0xFF2E2E3E),
-                                CircleShape
+                                if (isPlaying) StreamEmerald.copy(alpha = 0.45f) else Color(0xFF282838),
+                                RoundedCornerShape(18.dp)
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        // Concentric grooves
-                        Box(
-                            modifier = Modifier
-                                .size(96.dp)
-                                .clip(CircleShape)
-                                .border(1.dp, Color(0xFF252532), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
+                        if (albumArtBitmap != null) {
+                            Image(
+                                bitmap = albumArtBitmap,
+                                contentDescription = "Album Artwork for ${currentTrack?.title}",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+
+                            // Format codec badge in corner
+                            val codecName = currentTrack?.mimeType?.substringAfterLast("/")?.uppercase()
+                                ?.takeIf { it.isNotBlank() && it != "OCTET-STREAM" }
+                                ?: currentTrack?.title?.substringAfterLast(".", "")?.uppercase()
+                                ?: "AUDIO"
                             Box(
                                 modifier = Modifier
-                                    .size(54.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF16161E))
-                                    .border(1.dp, Color(0xFF38384C), CircleShape)
-                                    .rotate(if (isPlaying) discRotation else 0f),
+                                    .align(Alignment.BottomEnd)
+                                    .padding(8.dp)
+                                    .background(Color.Black.copy(alpha = 0.78f), RoundedCornerShape(6.dp))
+                                    .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                            ) {
+                                Text(
+                                    text = codecName,
+                                    color = Color.White,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        } else {
+                            // High-end stylized placeholder when track has no embedded image
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.linearGradient(
+                                            colors = listOf(
+                                                Color(0xFF222232),
+                                                Color(0xFF14141C),
+                                                if (isPlaying) StreamEmerald.copy(alpha = 0.16f) else Color(0xFF181824)
+                                            )
+                                        )
+                                    ),
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (isBuffering) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        strokeWidth = 2.dp,
-                                        color = StreamEmerald
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Outlined.MusicNote,
-                                        contentDescription = "Music Disc",
-                                        tint = if (isPlaying) StreamEmerald else Color.White,
-                                        modifier = Modifier.size(26.dp)
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(60.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isPlaying) StreamEmerald.copy(alpha = 0.2f) else Color(0xFF262634))
+                                            .border(1.dp, if (isPlaying) StreamEmerald.copy(alpha = 0.35f) else Color(0xFF38384A), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Audiotrack,
+                                            contentDescription = "Music Artwork",
+                                            tint = if (isPlaying) StreamEmerald else Color(0xFFA0A0B8),
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                    }
+
+                                    Text(
+                                        text = currentTrack?.album?.takeIf { it.isNotBlank() } ?: "Studio Master",
+                                        color = TextSecondary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.padding(horizontal = 14.dp)
                                     )
                                 }
+                            }
+                        }
+
+                        // Buffering indicator overlay if buffering
+                        if (isBuffering) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.65f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(34.dp),
+                                    strokeWidth = 2.5.dp,
+                                    color = StreamEmerald
+                                )
                             }
                         }
                     }
@@ -855,28 +909,67 @@ fun PlayerScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.weight(1f)
                         ) {
-                            // Left badge / track number or playing indicator
+                            // Left thumbnail / track artwork
+                            val itemArtBitmap = remember(track.id, track.artworkBytes) {
+                                track.artworkBytes?.let { bytes ->
+                                    try {
+                                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                                    } catch (_: Throwable) {
+                                        null
+                                    }
+                                }
+                            }
+
                             Box(
                                 modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isCurrent) StreamEmerald.copy(alpha = 0.2f) else Color(0xFF1A1A22)),
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isCurrent) StreamEmerald.copy(alpha = 0.2f) else Color(0xFF1A1A22))
+                                    .border(
+                                        1.dp,
+                                        if (isCurrent) StreamEmerald.copy(alpha = 0.4f) else Color(0xFF282834),
+                                        RoundedCornerShape(8.dp)
+                                    ),
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (itemPlaying) {
-                                    Icon(
-                                        imageVector = Icons.Filled.GraphicEq,
-                                        contentDescription = "Playing",
-                                        tint = StreamEmerald,
-                                        modifier = Modifier.size(18.dp)
+                                if (itemArtBitmap != null) {
+                                    Image(
+                                        bitmap = itemArtBitmap,
+                                        contentDescription = "Track Artwork",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
                                     )
+                                    if (itemPlaying) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color.Black.copy(alpha = 0.55f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.GraphicEq,
+                                                contentDescription = "Playing",
+                                                tint = StreamEmerald,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
                                 } else {
-                                    Text(
-                                        text = "${index + 1}",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isCurrent) StreamEmerald else TextSecondary
-                                    )
+                                    if (itemPlaying) {
+                                        Icon(
+                                            imageVector = Icons.Filled.GraphicEq,
+                                            contentDescription = "Playing",
+                                            tint = StreamEmerald,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    } else {
+                                        Text(
+                                            text = "${index + 1}",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isCurrent) StreamEmerald else TextSecondary
+                                        )
+                                    }
                                 }
                             }
 

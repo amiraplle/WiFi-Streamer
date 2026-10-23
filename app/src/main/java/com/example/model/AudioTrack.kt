@@ -12,7 +12,8 @@ data class AudioTrack(
     val mimeType: String = "",
     val sampleRate: Int = 44100,
     val bitDepth: Int = 16,
-    val channels: Int = 2
+    val channels: Int = 2,
+    val artworkBytes: ByteArray? = null
 ) {
     val durationFormatted: String
         get() {
@@ -25,6 +26,16 @@ data class AudioTrack(
 
     val formatBadge: String
         get() = "${sampleRate / 1000.0}k • $bitDepth-bit • ${if (channels == 2) "Stereo" else "Mono"}"
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is AudioTrack) return false
+        return id == other.id
+    }
+
+    override fun hashCode(): Int {
+        return id.hashCode()
+    }
 }
 
 enum class PlayerState {
