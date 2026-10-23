@@ -107,7 +107,6 @@ import com.example.ui.theme.WarningAmber
 fun PlayerScreen(
     viewModel: PlayerViewModel,
     onNavigateToSettings: () -> Unit = {},
-    onNavigateBack: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -188,54 +187,19 @@ fun PlayerScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (onNavigateBack != null) {
-                        Surface(
-                            color = Color(0xFF1E1E2A),
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, Color(0xFF2E2E3E)),
-                            modifier = Modifier
-                                .clickable { onNavigateBack() }
-                                .testTag("player_back_to_home_button")
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                                    contentDescription = "Back to Home",
-                                    tint = StreamEmerald,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = "Home",
-                                    color = TextPrimary,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-                    }
-
-                    Column {
-                        Text(
-                            text = "Hi-Res Player",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                        Text(
-                            text = "Direct UDP Stream to ESP32 DAC",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary,
-                            fontSize = 11.sp
-                        )
-                    }
+                Column {
+                    Text(
+                        text = "Hi-Res Player",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = "Direct UDP Stream to ESP32 DAC",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        fontSize = 11.sp
+                    )
                 }
 
                 // Add Music Actions

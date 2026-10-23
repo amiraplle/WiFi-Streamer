@@ -492,7 +492,9 @@ class AudioCaptureManager(
         val intervalMs = ((chunkSize.toLong() * 1000L) / (format.sampleRate * format.frameSizeBytes)).coerceIn(10L, 50L)
         val chunk = ByteArray(chunkSize)
         while (isRunning.get()) {
-            if (keepAliveSilence) {
+            // In DIRECT_AUDIO mode, LocalAudioPlayerManager feeds real music directly into the ring buffer.
+            // Only inject keep-alive silence for other virtual source types to prevent overwriting or stalling decoded music.
+            if (currentSource != AudioSourceType.DIRECT_AUDIO && keepAliveSilence) {
                 onAudioChunkReady(chunk, chunkSize, true)
             }
 

@@ -151,21 +151,12 @@ fun MainApp(
                     currentRoute = currentRoute,
                     onScreenSelected = { screen ->
                         if (currentRoute == screen.route) return@StudioBottomNavigation
-                        if (screen == Screen.Home) {
-                            val popped = navController.popBackStack(Screen.Home.route, inclusive = false)
-                            if (!popped) {
-                                navController.navigate(Screen.Home.route) {
-                                    popUpTo(Screen.Home.route) { inclusive = false }
-                                    launchSingleTop = true
-                                }
+                        navController.navigate(screen.route) {
+                            popUpTo(Screen.Home.route) {
+                                saveState = true
                             }
-                        } else {
-                            navController.navigate(screen.route) {
-                                popUpTo(Screen.Home.route) {
-                                    inclusive = false
-                                }
-                                launchSingleTop = true
-                            }
+                            launchSingleTop = true
+                            restoreState = true
                         }
                     }
                 )
@@ -186,25 +177,26 @@ fun MainApp(
                     viewModel = homeViewModel,
                     onNavigateToReceivers = {
                         navController.navigate(Screen.Receivers.route) {
-                            popUpTo(Screen.Home.route) { inclusive = false }
+                            popUpTo(Screen.Home.route) { saveState = true }
                             launchSingleTop = true
+                            restoreState = true
                         }
                     },
                     onNavigateToPlayer = {
                         navController.navigate(Screen.Player.route) {
-                            popUpTo(Screen.Home.route) { inclusive = false }
+                            popUpTo(Screen.Home.route) { saveState = true }
                             launchSingleTop = true
+                            restoreState = true
                         }
                     }
                 )
             }
             composable(Screen.Player.route) {
                 BackHandler {
-                    if (!navController.popBackStack(Screen.Home.route, inclusive = false)) {
-                        navController.navigate(Screen.Home.route) {
-                            popUpTo(Screen.Home.route) { inclusive = false }
-                            launchSingleTop = true
-                        }
+                    navController.navigate(Screen.Home.route) {
+                        popUpTo(Screen.Home.route) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
                     }
                 }
                 PlayerScreen(
@@ -213,57 +205,38 @@ fun MainApp(
                         navController.navigate(Screen.Settings.route) {
                             launchSingleTop = true
                         }
-                    },
-                    onNavigateBack = {
-                        if (!navController.popBackStack(Screen.Home.route, inclusive = false)) {
-                            navController.navigate(Screen.Home.route) {
-                                popUpTo(Screen.Home.route) { inclusive = false }
-                                launchSingleTop = true
-                            }
-                        }
                     }
                 )
             }
             composable(Screen.Receivers.route) {
                 BackHandler {
-                    if (!navController.popBackStack(Screen.Home.route, inclusive = false)) {
-                        navController.navigate(Screen.Home.route) {
-                            popUpTo(Screen.Home.route) { inclusive = false }
-                            launchSingleTop = true
-                        }
+                    navController.navigate(Screen.Home.route) {
+                        popUpTo(Screen.Home.route) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
                     }
                 }
                 ReceiversScreen(
                     viewModel = receiversViewModel,
                     onReceiverSelected = {
-                        if (!navController.popBackStack(Screen.Home.route, inclusive = false)) {
-                            navController.navigate(Screen.Home.route) {
-                                popUpTo(Screen.Home.route) { inclusive = false }
-                                launchSingleTop = true
-                            }
+                        navController.navigate(Screen.Home.route) {
+                            popUpTo(Screen.Home.route) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
                         }
                     }
                 )
             }
             composable(Screen.Settings.route) {
                 BackHandler {
-                    if (!navController.popBackStack()) {
-                        navController.navigate(Screen.Home.route) {
-                            popUpTo(Screen.Home.route) { inclusive = false }
-                            launchSingleTop = true
-                        }
+                    navController.navigate(Screen.Home.route) {
+                        popUpTo(Screen.Home.route) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
                     }
                 }
                 SettingsScreen(
-                    viewModel = settingsViewModel,
-                    onNavigateBack = {
-                        if (!navController.popBackStack()) {
-                            navController.navigate(Screen.Home.route) {
-                                popUpTo(Screen.Home.route) { inclusive = false }
-                                launchSingleTop = true
-                            }
-                        }
-                    }
+                    viewModel = settingsViewModel
                 )
             }
         }

@@ -6,6 +6,7 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.util.Log
@@ -239,18 +240,18 @@ class LocalAudioPlayerManager(
 
     /**
      * High-performance MediaCodec + MediaExtractor audio decoding loop.
-     * Extracts raw PCM from MP3, FLAC, WAV, AAC, OGG and sends to UDP pipeline with rate formatting.
+     * Extracts raw PCM from MP3, FLAC, WAV, AAC, OGG, Opus and sends to both device speaker and UDP pipeline.
      */
     private suspend fun runFileDecodingPlayback(track: AudioTrack) {
+        var pfd: ParcelFileDescriptor? = null
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
 
         try {
-            val pfd = context.contentResolver.openFileDescriptor(track.uri, "r")
+            pfd = context.contentResolver.openFileDescriptor(track.uri, "r")
                 ?: throw IllegalArgumentException("Cannot open audio file URI")
 
             extractor.setDataSource(pfd.fileDescriptor)
-            pfd.close()
 
             var audioTrackIndex = -1
             var mediaFormat: MediaFormat? = null
@@ -286,6 +287,11 @@ class LocalAudioPlayerManager(
 
             val totalDurationMs = durationUs / 1000L
 
+            // Target preferences from Settings
+            val prefs = preferencesRepository.userPreferences.value
+            val targetSampleRate = prefs.sampleRate
+            val targetBitDepth = prefs.bitDepth
+
             _uiState.value = _uiState.value.copy(
                 durationMs = totalDurationMs,
                 sourceFormatInfo = "${mime.substringAfterLast("/")} • ${sourceSampleRate / 1000.0} kHz • ${if (sourceChannels == 2) "Stereo" else "Mono"}",
@@ -298,13 +304,6 @@ class LocalAudioPlayerManager(
 
             val bufferInfo = MediaCodec.BufferInfo()
             var isEos = false
-
-            // Target preferences from Settings
-            val prefs = preferencesRepository.userPreferences.value
-            val targetSampleRate = prefs.sampleRate
-            val targetBitDepth = prefs.bitDepth
-
-            val pcmChunkBuffer = ByteArray(4096)
 
             while (currentCoroutineContext().isActive && !isStopped.get()) {
                 // Check if user paused
@@ -361,11 +360,19 @@ class LocalAudioPlayerManager(
                             targetBitDepth = targetBitDepth
                         )
 
-                        // Wait for ring buffer space if needed to avoid UDP dropouts
-                        ensureCapacityAndWrite(formattedPcm)
+                        if (formattedPcm.isNotEmpty()) {
+                            // Pure in-memory digital stream to ESP32 UDP transport: ZERO phone speaker leak
+                            StreamingService.instance?.writeDirectAudio(formattedPcm, 0, formattedPcm.size)
+
+                            // Monotonic real-time pacing matching hardware audio playback speed
+                            val chunkDurationMs = (formattedPcm.size.toLong() * 1000L) / (targetSampleRate.toLong() * 4L)
+                            if (chunkDurationMs > 0) {
+                                delay(chunkDurationMs)
+                            }
+                        }
 
                         val currentPositionMs = bufferInfo.presentationTimeUs / 1000L
-                        if (currentPositionMs > 0) {
+                        if (currentPositionMs >= 0) {
                             _uiState.value = _uiState.value.copy(positionMs = currentPositionMs)
                         }
                     }
@@ -397,17 +404,10 @@ class LocalAudioPlayerManager(
             try {
                 extractor.release()
             } catch (_: Exception) {}
+            try {
+                pfd?.close()
+            } catch (_: Exception) {}
         }
-    }
-
-
-
-    private suspend fun ensureCapacityAndWrite(data: ByteArray) {
-        val service = StreamingService.instance ?: return
-        while (service.getRingBufferFreeSpace() < data.size + 4096 && !isStopped.get()) {
-            delay(10)
-        }
-        service.writeDirectAudio(data, 0, data.size)
     }
 
     /**
@@ -420,9 +420,14 @@ class LocalAudioPlayerManager(
         targetSampleRate: Int,
         targetBitDepth: Int
     ): ByteArray {
+        if (inputPcm.size < 2 || sourceChannels <= 0 || sourceSampleRate <= 0) {
+            return ByteArray(0)
+        }
+
         val shortBuffer = ByteBuffer.wrap(inputPcm).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
         val totalSourceSamples = shortBuffer.remaining()
         val sourceFrames = totalSourceSamples / sourceChannels
+        if (sourceFrames <= 0) return ByteArray(0)
 
         // 1. Resample if necessary (linear interpolation)
         val targetFrames = if (sourceSampleRate == targetSampleRate) {
@@ -430,6 +435,7 @@ class LocalAudioPlayerManager(
         } else {
             ((sourceFrames.toLong() * targetSampleRate) / sourceSampleRate).toInt()
         }
+        if (targetFrames <= 0) return ByteArray(0)
 
         val bytesPerSample = targetBitDepth / 8
         val outputBytes = ByteArray(targetFrames * 2 * bytesPerSample) // always stereo output

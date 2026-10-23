@@ -788,6 +788,9 @@ fun HomeScreen(
                             // Start Screen Capture button (immediately stops direct player transmission)
                             Button(
                                 onClick = {
+                                    // Immediately close direct player transmission
+                                    viewModel.stopPlayerDirectTransmission()
+
                                     val hasAudioPermission = ContextCompat.checkSelfPermission(
                                         context,
                                         android.Manifest.permission.RECORD_AUDIO
@@ -861,6 +864,7 @@ fun HomeScreen(
                     } else {
                         Button(
                             onClick = {
+                                viewModel.stopPlayerDirectTransmission()
                                 if (prefs.audioSource == AudioSourceType.INTERNAL_AUDIO) {
                                     val hasAudioPermission = ContextCompat.checkSelfPermission(
                                         context,
