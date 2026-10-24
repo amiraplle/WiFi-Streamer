@@ -10,6 +10,8 @@ import com.example.model.PlayerUiState
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
+import android.content.Intent
+
 class PlayerViewModel(application: Application) : AndroidViewModel(application) {
 
     private val playerManager = AppContainer.getPlayerManager(application)
@@ -46,7 +48,14 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     fun addPickedFiles(uris: List<Uri>) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
+            val contentResolver = getApplication<Application>().contentResolver
             val tracks = uris.map { uri ->
+                try {
+                    contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: Throwable) {}
                 val fileName = uri.lastPathSegment ?: "Audio Track"
                 playerManager.extractTrackMetadata(uri, fileName)
             }

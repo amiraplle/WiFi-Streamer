@@ -805,7 +805,13 @@ class StreamingService : Service() {
         return ringBuffer.write(src, offset, length)
     }
 
+    fun getRingBufferAvailable(): Int = ringBuffer.available
+
     fun getRingBufferFreeSpace(): Int = ringBuffer.capacity - ringBuffer.available
+
+    fun clearRingBuffer() {
+        ringBuffer.clear()
+    }
 
     companion object {
         const val NOTIFICATION_ID = 50005

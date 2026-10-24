@@ -37,6 +37,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import org.json.JSONArray
+import org.json.JSONObject
+import kotlin.math.cos
 import kotlin.math.sin
 
 class LocalAudioPlayerManager(
@@ -71,6 +74,9 @@ class LocalAudioPlayerManager(
                 )
             }
         }
+
+        // Permanently restore saved playlist and last played track from disk
+        restoreSavedPlaylist()
     }
 
     fun updateTargetFormat(format: com.example.model.AudioStreamFormat) {
@@ -92,6 +98,7 @@ class LocalAudioPlayerManager(
             errorMessage = null
         )
 
+        saveCurrentTrackIndex(index)
         startPlaybackWorker(track)
     }
 
@@ -176,11 +183,16 @@ class LocalAudioPlayerManager(
         val currentList = _uiState.value.playlist.toMutableList()
         currentList.addAll(newTracks)
         val startIndex = if (_uiState.value.playlist.isEmpty()) 0 else currentList.size - newTracks.size
+        val targetTrack = _uiState.value.currentTrack ?: newTracks.firstOrNull()
+        val targetIdx = if (_uiState.value.currentIndex < 0) 0 else _uiState.value.currentIndex
         _uiState.value = _uiState.value.copy(
             playlist = currentList,
-            currentTrack = _uiState.value.currentTrack ?: newTracks.firstOrNull(),
-            currentIndex = if (_uiState.value.currentIndex < 0) 0 else _uiState.value.currentIndex
+            currentTrack = targetTrack,
+            currentIndex = targetIdx
         )
+        // Permanently persist playlist to disk so songs never disappear on app close
+        savePlaylistToDisk(currentList, targetIdx)
+
         if (playImmediately) {
             playTrackAtIndex(startIndex)
         }
@@ -196,6 +208,7 @@ class LocalAudioPlayerManager(
             positionMs = 0L,
             durationMs = 0L
         )
+        deleteSavedPlaylist()
     }
 
     fun stopPlayback() {
@@ -309,11 +322,13 @@ class LocalAudioPlayerManager(
 
             val bufferInfo = MediaCodec.BufferInfo()
             var isEos = false
+            var isStartingRamp = true
+            val targetCushionBytes = 96_000 // Deep ~550ms reservoir prevents starvation underruns completely
 
             while (currentCoroutineContext().isActive && !isStopped.get()) {
                 // Check if user paused
                 if (isPaused.get()) {
-                    delay(40)
+                    delay(30)
                     continue
                 }
 
@@ -323,6 +338,15 @@ class LocalAudioPlayerManager(
                     val seekUs = seekMs * 1000L
                     extractor.seekTo(seekUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
                     codec.flush()
+                    StreamingService.instance?.clearRingBuffer()
+                    isStartingRamp = true
+                }
+
+                // Regulate buffer cushion: if ring buffer has > 96KB (~550ms), yield CPU to transmitter
+                val buffered = StreamingService.instance?.getRingBufferAvailable() ?: 0
+                if (buffered >= targetCushionBytes) {
+                    delay(20)
+                    continue
                 }
 
                 // Feed input to decoder
@@ -366,14 +390,14 @@ class LocalAudioPlayerManager(
                         )
 
                         if (formattedPcm.isNotEmpty()) {
-                            // Pure in-memory digital stream to ESP32 UDP transport: ZERO phone speaker leak
-                            StreamingService.instance?.writeDirectAudio(formattedPcm, 0, formattedPcm.size)
-
-                            // Monotonic real-time pacing matching hardware audio playback speed
-                            val chunkDurationMs = (formattedPcm.size.toLong() * 1000L) / (targetSampleRate.toLong() * 4L)
-                            if (chunkDurationMs > 0) {
-                                delay(chunkDurationMs)
+                            // Apply 15ms anti-pop soft-ramp on track start or seek resume
+                            if (isStartingRamp) {
+                                applySoftRamp(formattedPcm, targetSampleRate, targetBitDepth)
+                                isStartingRamp = false
                             }
+
+                            // Write directly to RingBuffer for PacedAudioTransmitter: ZERO phone speaker leak
+                            StreamingService.instance?.writeDirectAudio(formattedPcm, 0, formattedPcm.size)
                         }
 
                         val currentPositionMs = bufferInfo.presentationTimeUs / 1000L
@@ -385,6 +409,12 @@ class LocalAudioPlayerManager(
                     codec.releaseOutputBuffer(outIndex, false)
 
                     if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                        // Wait for transmitter to drain remaining buffered audio before transitioning
+                        while (currentCoroutineContext().isActive && !isStopped.get()) {
+                            val remaining = StreamingService.instance?.getRingBufferAvailable() ?: 0
+                            if (remaining <= 1024) break
+                            delay(40)
+                        }
                         break // Track ended
                     }
                 } else if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
@@ -427,6 +457,11 @@ class LocalAudioPlayerManager(
     ): ByteArray {
         if (inputPcm.size < 2 || sourceChannels <= 0 || sourceSampleRate <= 0) {
             return ByteArray(0)
+        }
+
+        // Fast passthrough if source already matches target (standard 44.1kHz 16-bit stereo)
+        if (sourceSampleRate == targetSampleRate && sourceChannels == 2 && targetBitDepth == 16) {
+            return inputPcm
         }
 
         val shortBuffer = ByteBuffer.wrap(inputPcm).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
@@ -651,23 +686,197 @@ class LocalAudioPlayerManager(
     private fun processArtwork(rawBytes: ByteArray?): ByteArray? {
         if (rawBytes == null || rawBytes.isEmpty()) return null
         return try {
-            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, opts)
-            val maxDim = maxOf(opts.outWidth, opts.outHeight)
-            if (maxDim <= 0) return null
-
-            var sample = 1
-            while (maxDim / sample > 512) {
-                sample *= 2
+            val options = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
             }
-            val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sample }
-            val bmp = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, decodeOpts) ?: return null
-            val baos = ByteArrayOutputStream()
-            bmp.compress(Bitmap.CompressFormat.JPEG, 85, baos)
-            bmp.recycle()
-            baos.toByteArray()
+            BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, options)
+            val maxDim = 320
+            var sampleSize = 1
+            if (options.outHeight > maxDim || options.outWidth > maxDim) {
+                val halfHeight = options.outHeight / 2
+                val halfWidth = options.outWidth / 2
+                while ((halfHeight / sampleSize) >= maxDim && (halfWidth / sampleSize) >= maxDim) {
+                    sampleSize *= 2
+                }
+            }
+            val decodeOptions = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.RGB_565
+            }
+            val bitmap = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, decodeOptions) ?: return null
+            val stream = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+            bitmap.recycle()
+            stream.toByteArray()
         } catch (_: Throwable) {
-            rawBytes.takeIf { it.size < 400_000 }
+            rawBytes
+        }
+    }
+
+    private fun applySoftRamp(pcm: ByteArray, sampleRate: Int, bitDepth: Int) {
+        val bytesPerSample = bitDepth / 8
+        val frameSize = bytesPerSample * 2 // stereo
+        val rampFrames = (sampleRate * 15) / 1000 // 15ms
+        val framesToProcess = minOf(rampFrames, pcm.size / frameSize)
+        if (framesToProcess <= 0) return
+
+        var idx = 0
+        for (f in 0 until framesToProcess) {
+            val factor = (0.5 * (1.0 - cos(Math.PI * f / framesToProcess))).toFloat()
+            if (bitDepth == 16) {
+                val lLow = pcm[idx].toInt() and 0xFF
+                val lHigh = pcm[idx + 1].toInt()
+                val lSample = ((lHigh shl 8) or lLow).toShort()
+                val rampedL = (lSample * factor).toInt().coerceIn(-32768, 32767).toShort()
+                pcm[idx] = (rampedL.toInt() and 0xFF).toByte()
+                pcm[idx + 1] = ((rampedL.toInt() shr 8) and 0xFF).toByte()
+
+                val rLow = pcm[idx + 2].toInt() and 0xFF
+                val rHigh = pcm[idx + 3].toInt()
+                val rSample = ((rHigh shl 8) or rLow).toShort()
+                val rampedR = (rSample * factor).toInt().coerceIn(-32768, 32767).toShort()
+                pcm[idx + 2] = (rampedR.toInt() and 0xFF).toByte()
+                pcm[idx + 3] = ((rampedR.toInt() shr 8) and 0xFF).toByte()
+            }
+            idx += frameSize
+        }
+    }
+
+    private fun saveCurrentTrackIndex(index: Int) {
+        playerScope.launch(Dispatchers.IO) {
+            try {
+                val prefs = context.getSharedPreferences("c3_player_state", Context.MODE_PRIVATE)
+                prefs.edit().putInt("last_track_index", index).apply()
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun savePlaylistToDisk(tracks: List<AudioTrack>, currentIndex: Int, folderUri: Uri? = null) {
+        playerScope.launch(Dispatchers.IO) {
+            try {
+                val prefs = context.getSharedPreferences("c3_player_state", Context.MODE_PRIVATE)
+                val editor = prefs.edit().putInt("last_track_index", currentIndex)
+                if (folderUri != null) {
+                    editor.putString("last_folder_uri", folderUri.toString())
+                }
+                editor.apply()
+
+                val jsonArray = JSONArray()
+                for (t in tracks) {
+                    val obj = JSONObject().apply {
+                        put("id", t.id)
+                        put("title", t.title)
+                        put("artist", t.artist)
+                        put("album", t.album)
+                        put("durationMs", t.durationMs)
+                        put("uri", t.uri.toString())
+                        put("mimeType", t.mimeType)
+                        put("sampleRate", t.sampleRate)
+                        put("bitDepth", t.bitDepth)
+                        put("channels", t.channels)
+                    }
+                    jsonArray.put(obj)
+                }
+                val file = File(context.filesDir, "saved_playlist.json")
+                file.writeText(jsonArray.toString())
+                Log.i(TAG, "Saved ${tracks.size} tracks to persistent playlist storage")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to save playlist to disk: ${e.message}")
+            }
+        }
+    }
+
+    private fun restoreSavedPlaylist() {
+        playerScope.launch(Dispatchers.IO) {
+            try {
+                val file = File(context.filesDir, "saved_playlist.json")
+                if (!file.exists()) return@launch
+
+                val content = file.readText()
+                if (content.isBlank()) return@launch
+
+                val jsonArray = JSONArray(content)
+                val restored = mutableListOf<AudioTrack>()
+
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    val uriStr = obj.optString("uri")
+                    if (uriStr.isBlank()) continue
+                    val uri = Uri.parse(uriStr)
+
+                    var isAccessible = true
+                    try {
+                        context.contentResolver.openFileDescriptor(uri, "r")?.close()
+                    } catch (_: Throwable) {
+                        isAccessible = false
+                    }
+
+                    if (isAccessible) {
+                        val track = AudioTrack(
+                            id = obj.optString("id", uriStr),
+                            title = obj.optString("title", "Audio Track"),
+                            artist = obj.optString("artist", "Local Library"),
+                            album = obj.optString("album", ""),
+                            durationMs = obj.optLong("durationMs", 0L),
+                            uri = uri,
+                            mimeType = obj.optString("mimeType", "audio/*"),
+                            sampleRate = obj.optInt("sampleRate", 44100),
+                            bitDepth = obj.optInt("bitDepth", 16),
+                            channels = obj.optInt("channels", 2),
+                            artworkBytes = null
+                        )
+                        restored.add(track)
+                    }
+                }
+
+                if (restored.isNotEmpty()) {
+                    val prefs = context.getSharedPreferences("c3_player_state", Context.MODE_PRIVATE)
+                    val lastIdx = prefs.getInt("last_track_index", 0).coerceIn(0, restored.size - 1)
+                    val targetTrack = restored.getOrNull(lastIdx) ?: restored.first()
+
+                    withContext(Dispatchers.Main) {
+                        _uiState.value = _uiState.value.copy(
+                            playlist = restored,
+                            currentIndex = lastIdx,
+                            currentTrack = targetTrack,
+                            durationMs = targetTrack.durationMs
+                        )
+                    }
+                    Log.i(TAG, "Restored ${restored.size} tracks from persistent storage")
+
+                    // Lazily load embedded artwork in background so UI remains instant
+                    for (i in restored.indices) {
+                        val t = restored[i]
+                        val fullTrack = extractTrackMetadata(t.uri, t.title)
+                        if (fullTrack.artworkBytes != null) {
+                            val currentList = _uiState.value.playlist.toMutableList()
+                            if (i in currentList.indices && currentList[i].id == t.id) {
+                                currentList[i] = currentList[i].copy(artworkBytes = fullTrack.artworkBytes)
+                                val updatedCurrent = if (_uiState.value.currentIndex == i) currentList[i] else _uiState.value.currentTrack
+                                withContext(Dispatchers.Main) {
+                                    _uiState.value = _uiState.value.copy(
+                                        playlist = currentList,
+                                        currentTrack = updatedCurrent
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error restoring playlist: ${e.message}")
+            }
+        }
+    }
+
+    private fun deleteSavedPlaylist() {
+        playerScope.launch(Dispatchers.IO) {
+            try {
+                val file = File(context.filesDir, "saved_playlist.json")
+                if (file.exists()) file.delete()
+                val prefs = context.getSharedPreferences("c3_player_state", Context.MODE_PRIVATE)
+                prefs.edit().clear().apply()
+            } catch (_: Exception) {}
         }
     }
 }
