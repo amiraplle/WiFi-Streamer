@@ -13,6 +13,7 @@ import android.media.AudioManager
 import android.media.VolumeProvider
 import android.media.projection.MediaProjection
 import android.graphics.BitmapFactory
+import android.graphics.drawable.Icon
 import android.media.MediaMetadata
 import android.media.projection.MediaProjectionManager
 import android.media.session.MediaSession
@@ -798,54 +799,91 @@ class StreamingService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
 
         if (isDirectPlayer && track != null) {
-            // Set embedded album art as large icon
+            val mediaBuilder = Notification.Builder(this, C3StreamerApplication.NOTIFICATION_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_stream_tile)
+                .setContentTitle(track.title)
+                .setContentText(track.artist)
+                .setContentIntent(openPendingIntent)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
+
+            // Real Album Artwork as large icon
             track.artworkBytes?.let { bytes ->
                 try {
                     val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                     if (bmp != null) {
-                        builder.setLargeIcon(bmp)
+                        mediaBuilder.setLargeIcon(bmp)
                     }
                 } catch (_: Throwable) {}
             }
 
-            // 1. Previous Track
+            // 1. Previous Track Icon Action
             val prevIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_PREV }
             val prevPending = PendingIntent.getService(
                 this, 20, prevIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
+            val prevAction = Notification.Action.Builder(
+                Icon.createWithResource(this, R.drawable.ic_notif_prev),
+                "Previous",
+                prevPending
+            ).build()
 
-            // 2. Play / Pause
+            // 2. Play / Pause Icon Action
             val isPlaying = playerUi.playerState == PlayerState.PLAYING
             val playPauseIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_PLAY_PAUSE }
             val playPausePending = PendingIntent.getService(
                 this, 21, playPauseIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
+            val playPauseAction = Notification.Action.Builder(
+                Icon.createWithResource(
+                    this,
+                    if (isPlaying) R.drawable.ic_notif_pause else R.drawable.ic_notif_play
+                ),
+                if (isPlaying) "Pause" else "Play",
+                playPausePending
+            ).build()
 
-            // 3. Dedicated Stop Action (Stops playback, flushes buffer, terminates UDP stream)
+            // 3. Dedicated Stop Icon Action
             val stopIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_STOP }
             val stopPending = PendingIntent.getService(
                 this, 22, stopIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
+            val stopAction = Notification.Action.Builder(
+                Icon.createWithResource(this, R.drawable.ic_notif_stop),
+                "Stop",
+                stopPending
+            ).build()
 
-            // 4. Next Track
+            // 4. Next Track Icon Action
             val nextIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_NEXT }
             val nextPending = PendingIntent.getService(
                 this, 23, nextIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
+            val nextAction = Notification.Action.Builder(
+                Icon.createWithResource(this, R.drawable.ic_notif_next),
+                "Next",
+                nextPending
+            ).build()
 
-            builder
-                .addAction(R.drawable.ic_notif_prev, "Prev", prevPending)
-                .addAction(
-                    if (isPlaying) R.drawable.ic_notif_pause else R.drawable.ic_notif_play,
-                    if (isPlaying) "Pause" else "Play",
-                    playPausePending
-                )
-                .addAction(R.drawable.ic_notif_stop, "Stop", stopPending)
-                .addAction(R.drawable.ic_notif_next, "Next", nextPending)
+            mediaBuilder.addAction(prevAction)
+            mediaBuilder.addAction(playPauseAction)
+            mediaBuilder.addAction(stopAction)
+            mediaBuilder.addAction(nextAction)
+
+            // MediaStyle turns the actions into real media control icons and links directly to system media center
+            val mediaStyle = Notification.MediaStyle()
+            mediaSession?.let {
+                mediaStyle.setMediaSession(it.sessionToken)
+            }
+            mediaStyle.setShowActionsInCompactView(0, 1, 2, 3)
+            mediaBuilder.style = mediaStyle
+
+            return mediaBuilder.build()
         } else {
             // Generic source stream notification actions
             val muteIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_TOGGLE_MUTE }
