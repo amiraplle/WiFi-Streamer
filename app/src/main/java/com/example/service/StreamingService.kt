@@ -12,9 +12,13 @@ import androidx.core.content.ContextCompat
 import android.media.AudioManager
 import android.media.VolumeProvider
 import android.media.projection.MediaProjection
+import android.graphics.BitmapFactory
+import android.media.MediaMetadata
 import android.media.projection.MediaProjectionManager
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
+import com.example.model.PlayerState
+import com.example.model.PlayerUiState
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -123,17 +127,48 @@ class StreamingService : Service() {
             mediaSession = MediaSession(this, "C3AudioStreamingSession").apply {
                 setCallback(object : MediaSession.Callback() {
                     override fun onPlay() {
-                        val prefsRepo = AppContainer.getPreferences(this@StreamingService)
-                        prefsRepo.setMuted(false)
-                        setMuted(false)
+                        val player = AppContainer.getPlayerManager(this@StreamingService)
+                        if (player.uiState.value.playerState == PlayerState.PAUSED) {
+                            player.togglePlayPause()
+                        } else if (player.uiState.value.playlist.isNotEmpty()) {
+                            val idx = if (player.uiState.value.currentIndex >= 0) player.uiState.value.currentIndex else 0
+                            player.playTrackAtIndex(idx)
+                        } else {
+                            val prefsRepo = AppContainer.getPreferences(this@StreamingService)
+                            prefsRepo.setMuted(false)
+                            setMuted(false)
+                        }
+                        updateNotification()
                     }
                     override fun onPause() {
-                        val prefsRepo = AppContainer.getPreferences(this@StreamingService)
-                        prefsRepo.setMuted(true)
-                        setMuted(true)
+                        val player = AppContainer.getPlayerManager(this@StreamingService)
+                        if (player.uiState.value.playerState == PlayerState.PLAYING) {
+                            player.togglePlayPause()
+                        } else {
+                            val prefsRepo = AppContainer.getPreferences(this@StreamingService)
+                            prefsRepo.setMuted(true)
+                            setMuted(true)
+                        }
+                        updateNotification()
+                    }
+                    override fun onSkipToNext() {
+                        val player = AppContainer.getPlayerManager(this@StreamingService)
+                        player.playNext()
+                        updateNotification()
+                    }
+                    override fun onSkipToPrevious() {
+                        val player = AppContainer.getPlayerManager(this@StreamingService)
+                        player.playPrevious()
+                        updateNotification()
                     }
                     override fun onStop() {
+                        val player = AppContainer.getPlayerManager(this@StreamingService)
+                        player.stopPlayback()
                         stopStreaming()
+                    }
+                    override fun onSeekTo(pos: Long) {
+                        val player = AppContainer.getPlayerManager(this@StreamingService)
+                        player.seekTo(pos)
                     }
                 })
                 val state = PlaybackState.Builder()
@@ -141,7 +176,10 @@ class StreamingService : Service() {
                         PlaybackState.ACTION_PLAY or
                         PlaybackState.ACTION_PAUSE or
                         PlaybackState.ACTION_STOP or
-                        PlaybackState.ACTION_PLAY_PAUSE
+                        PlaybackState.ACTION_PLAY_PAUSE or
+                        PlaybackState.ACTION_SKIP_TO_NEXT or
+                        PlaybackState.ACTION_SKIP_TO_PREVIOUS or
+                        PlaybackState.ACTION_SEEK_TO
                     )
                     .setState(PlaybackState.STATE_PLAYING, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1.0f)
                     .build()
@@ -150,6 +188,13 @@ class StreamingService : Service() {
             }
         } catch (e: Exception) {
             Log.w(TAG, "MediaSession init warning: ${e.message}")
+        }
+
+        // Keep MediaSession and notification in sync with player state & current track
+        serviceScope.launch {
+            AppContainer.getPlayerManager(this@StreamingService).uiState.collect { playerUi ->
+                updatePlayerSessionAndNotification(playerUi)
+            }
         }
 
         udpClient = UdpStreamClient(
@@ -246,7 +291,31 @@ class StreamingService : Service() {
                 startStreamingPipeline(AudioSourceType.DIRECT_AUDIO)
             }
             ACTION_STOP -> {
+                val player = AppContainer.getPlayerManager(this)
+                player.stopPlayback()
                 stopStreaming()
+            }
+            ACTION_PLAY_PAUSE -> {
+                val player = AppContainer.getPlayerManager(this)
+                if (player.uiState.value.playerState == PlayerState.PAUSED) {
+                    player.togglePlayPause()
+                } else if (player.uiState.value.playerState == PlayerState.PLAYING) {
+                    player.togglePlayPause()
+                } else if (player.uiState.value.playlist.isNotEmpty()) {
+                    val idx = if (player.uiState.value.currentIndex >= 0) player.uiState.value.currentIndex else 0
+                    player.playTrackAtIndex(idx)
+                }
+                updateNotification()
+            }
+            ACTION_PREV -> {
+                val player = AppContainer.getPlayerManager(this)
+                player.playPrevious()
+                updateNotification()
+            }
+            ACTION_NEXT -> {
+                val player = AppContainer.getPlayerManager(this)
+                player.playNext()
+                updateNotification()
             }
             ACTION_RECONNECT -> {
                 reconnect()
@@ -655,8 +724,54 @@ class StreamingService : Service() {
         manager.notify(NOTIFICATION_ID, notification)
     }
 
+    private fun updatePlayerSessionAndNotification(playerUi: PlayerUiState) {
+        val track = playerUi.currentTrack
+        if (track != null) {
+            val metaBuilder = MediaMetadata.Builder()
+                .putString(MediaMetadata.METADATA_KEY_TITLE, track.title)
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, track.artist)
+                .putString(MediaMetadata.METADATA_KEY_ALBUM, track.album)
+                .putLong(MediaMetadata.METADATA_KEY_DURATION, track.durationMs)
+
+            track.artworkBytes?.let { bytes ->
+                try {
+                    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    if (bmp != null) {
+                        metaBuilder.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, bmp)
+                    }
+                } catch (_: Throwable) {}
+            }
+            mediaSession?.setMetadata(metaBuilder.build())
+
+            val isPlaying = playerUi.playerState == PlayerState.PLAYING
+            val isPaused = playerUi.playerState == PlayerState.PAUSED
+            val stateCode = when {
+                isPlaying -> PlaybackState.STATE_PLAYING
+                isPaused -> PlaybackState.STATE_PAUSED
+                else -> PlaybackState.STATE_STOPPED
+            }
+            val pbState = PlaybackState.Builder()
+                .setActions(
+                    PlaybackState.ACTION_PLAY or
+                    PlaybackState.ACTION_PAUSE or
+                    PlaybackState.ACTION_STOP or
+                    PlaybackState.ACTION_PLAY_PAUSE or
+                    PlaybackState.ACTION_SKIP_TO_NEXT or
+                    PlaybackState.ACTION_SKIP_TO_PREVIOUS or
+                    PlaybackState.ACTION_SEEK_TO
+                )
+                .setState(stateCode, playerUi.positionMs, if (isPlaying) 1.0f else 0f)
+                .build()
+            mediaSession?.setPlaybackState(pbState)
+        }
+        updateNotification()
+    }
+
     private fun buildNotification(title: String, content: String): Notification {
         val prefs = AppContainer.getPreferences(this).userPreferences.value
+        val player = AppContainer.getPlayerManager(this)
+        val playerUi = player.uiState.value
+        val track = playerUi.currentTrack
 
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -666,59 +781,112 @@ class StreamingService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // 1. Mute / Unmute Action
-        val muteIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_TOGGLE_MUTE }
-        val mutePendingIntent = PendingIntent.getService(
-            this, 10, muteIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val isDirectPlayer = activeStreamSource == "DIRECT_AUDIO" || track != null
 
-        // 2. Volume Down (-5%)
-        val volDownIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_VOLUME_DOWN }
-        val volDownPendingIntent = PendingIntent.getService(
-            this, 11, volDownIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val notifTitle = if (isDirectPlayer && track != null) track.title else title
+        val notifContent = if (isDirectPlayer && track != null) {
+            "${track.artist} • Direct ESP32 Stream"
+        } else content
 
-        // 3. Volume Up (+5%)
-        val volUpIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_VOLUME_UP }
-        val volUpPendingIntent = PendingIntent.getService(
-            this, 12, volUpIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        // 4. Stop Action
-        val stopIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_STOP }
-        val stopPendingIntent = PendingIntent.getService(
-            this, 13, stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        // 5. Close App [X] (Poweramp-style complete exit)
-        val closeAppIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_CLOSE_APP }
-        val closeAppPendingIntent = PendingIntent.getService(
-            this, 14, closeAppIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        return NotificationCompat.Builder(this, C3StreamerApplication.NOTIFICATION_CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, C3StreamerApplication.NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stream_tile)
-            .setContentTitle(title)
-            .setContentText(content)
+            .setContentTitle(notifTitle)
+            .setContentText(notifContent)
             .setContentIntent(openPendingIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .addAction(
-                if (prefs.isMuted) R.drawable.ic_notif_vol_up else R.drawable.ic_notif_mute,
-                if (prefs.isMuted) "Unmute" else "Mute",
-                mutePendingIntent
+
+        if (isDirectPlayer && track != null) {
+            // Set embedded album art as large icon
+            track.artworkBytes?.let { bytes ->
+                try {
+                    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    if (bmp != null) {
+                        builder.setLargeIcon(bmp)
+                    }
+                } catch (_: Throwable) {}
+            }
+
+            // 1. Previous Track
+            val prevIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_PREV }
+            val prevPending = PendingIntent.getService(
+                this, 20, prevIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            .addAction(R.drawable.ic_notif_vol_down, "Vol -", volDownPendingIntent)
-            .addAction(R.drawable.ic_notif_vol_up, "Vol +", volUpPendingIntent)
-            .addAction(R.drawable.ic_notif_stop, "Stop", stopPendingIntent)
-            .addAction(R.drawable.ic_notif_close, "Close", closeAppPendingIntent)
-            .build()
+
+            // 2. Play / Pause
+            val isPlaying = playerUi.playerState == PlayerState.PLAYING
+            val playPauseIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_PLAY_PAUSE }
+            val playPausePending = PendingIntent.getService(
+                this, 21, playPauseIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            // 3. Dedicated Stop Action (Stops playback, flushes buffer, terminates UDP stream)
+            val stopIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_STOP }
+            val stopPending = PendingIntent.getService(
+                this, 22, stopIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            // 4. Next Track
+            val nextIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_NEXT }
+            val nextPending = PendingIntent.getService(
+                this, 23, nextIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            builder
+                .addAction(R.drawable.ic_notif_prev, "Prev", prevPending)
+                .addAction(
+                    if (isPlaying) R.drawable.ic_notif_pause else R.drawable.ic_notif_play,
+                    if (isPlaying) "Pause" else "Play",
+                    playPausePending
+                )
+                .addAction(R.drawable.ic_notif_stop, "Stop", stopPending)
+                .addAction(R.drawable.ic_notif_next, "Next", nextPending)
+        } else {
+            // Generic source stream notification actions
+            val muteIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_TOGGLE_MUTE }
+            val mutePendingIntent = PendingIntent.getService(
+                this, 10, muteIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val volDownIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_VOLUME_DOWN }
+            val volDownPendingIntent = PendingIntent.getService(
+                this, 11, volDownIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val volUpIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_VOLUME_UP }
+            val volUpPendingIntent = PendingIntent.getService(
+                this, 12, volUpIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val stopIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_STOP }
+            val stopPendingIntent = PendingIntent.getService(
+                this, 13, stopIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val closeAppIntent = Intent(this, StreamingService::class.java).apply { action = ACTION_CLOSE_APP }
+            val closeAppPendingIntent = PendingIntent.getService(
+                this, 14, closeAppIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            builder
+                .addAction(
+                    if (prefs.isMuted) R.drawable.ic_notif_vol_up else R.drawable.ic_notif_mute,
+                    if (prefs.isMuted) "Unmute" else "Mute",
+                    mutePendingIntent
+                )
+                .addAction(R.drawable.ic_notif_vol_down, "Vol -", volDownPendingIntent)
+                .addAction(R.drawable.ic_notif_vol_up, "Vol +", volUpPendingIntent)
+                .addAction(R.drawable.ic_notif_stop, "Stop", stopPendingIntent)
+                .addAction(R.drawable.ic_notif_close, "Close", closeAppPendingIntent)
+        }
+
+        return builder.build()
     }
 
     private fun closeAppAndService() {
@@ -818,6 +986,9 @@ class StreamingService : Service() {
         const val ACTION_START = "com.example.service.action.START"
         const val ACTION_START_DIRECT = "com.example.service.action.START_DIRECT"
         const val ACTION_STOP = "com.example.service.action.STOP"
+        const val ACTION_PLAY_PAUSE = "com.example.service.action.PLAY_PAUSE"
+        const val ACTION_PREV = "com.example.service.action.PREV"
+        const val ACTION_NEXT = "com.example.service.action.NEXT"
         const val ACTION_RECONNECT = "com.example.service.action.RECONNECT"
         const val ACTION_TOGGLE_MUTE = "com.example.service.action.TOGGLE_MUTE"
         const val ACTION_VOLUME_UP = "com.example.service.action.VOLUME_UP"

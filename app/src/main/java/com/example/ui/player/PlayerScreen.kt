@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.Audiotrack
@@ -597,14 +598,14 @@ fun PlayerScreen(
                         IconButton(
                             onClick = { viewModel.toggleShuffle() },
                             modifier = Modifier
-                                .size(42.dp)
+                                .size(38.dp)
                                 .testTag("player_shuffle_button")
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Shuffle,
                                 contentDescription = "Shuffle",
                                 tint = if (uiState.isShuffle) StreamEmerald else Color(0xFF6E6E82),
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(19.dp)
                             )
                         }
 
@@ -612,21 +613,21 @@ fun PlayerScreen(
                         IconButton(
                             onClick = { viewModel.playPrevious() },
                             modifier = Modifier
-                                .size(48.dp)
+                                .size(44.dp)
                                 .testTag("player_previous_button")
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.SkipPrevious,
                                 contentDescription = "Previous",
                                 tint = Color.White,
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(26.dp)
                             )
                         }
 
-                        // Play / Pause tactile hero button (64dp)
+                        // Play / Pause tactile hero button (60dp)
                         Box(
                             modifier = Modifier
-                                .size(64.dp)
+                                .size(60.dp)
                                 .shadow(elevation = 10.dp, shape = CircleShape, ambientColor = Color.White, spotColor = Color.White)
                                 .clip(CircleShape)
                                 .background(Color.White)
@@ -641,7 +642,29 @@ fun PlayerScreen(
                                 imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                                 contentDescription = if (isPlaying) "Pause" else "Play",
                                 tint = Color.Black,
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
+
+                        // Dedicated Stop Button (Kills playback, flushes buffer, stops UDP transmission)
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF2B161B))
+                                .border(1.dp, Color(0xFF6A2635), CircleShape)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = ripple(color = Color(0xFFFF5252).copy(alpha = 0.25f))
+                                ) { viewModel.stopPlayback() }
+                                .testTag("player_stop_button"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Stop,
+                                contentDescription = "Stop Playback and Transmission",
+                                tint = Color(0xFFFF5252),
+                                modifier = Modifier.size(22.dp)
                             )
                         }
 
@@ -649,14 +672,14 @@ fun PlayerScreen(
                         IconButton(
                             onClick = { viewModel.playNext() },
                             modifier = Modifier
-                                .size(48.dp)
+                                .size(44.dp)
                                 .testTag("player_next_button")
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.SkipNext,
                                 contentDescription = "Next",
                                 tint = Color.White,
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(26.dp)
                             )
                         }
 
@@ -664,7 +687,7 @@ fun PlayerScreen(
                         IconButton(
                             onClick = { viewModel.toggleRepeat() },
                             modifier = Modifier
-                                .size(42.dp)
+                                .size(38.dp)
                                 .testTag("player_repeat_button")
                         ) {
                             val icon = when (uiState.repeatMode) {
@@ -675,7 +698,7 @@ fun PlayerScreen(
                                 imageVector = icon,
                                 contentDescription = "Repeat",
                                 tint = if (uiState.repeatMode != PlayerRepeatMode.OFF) StreamEmerald else Color(0xFF6E6E82),
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(19.dp)
                             )
                         }
                     }

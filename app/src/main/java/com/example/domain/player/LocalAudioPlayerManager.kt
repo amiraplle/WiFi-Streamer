@@ -216,8 +216,9 @@ class LocalAudioPlayerManager(
         isPaused.set(false)
         playbackJob?.cancel()
         playbackJob = null
+        StreamingService.instance?.clearRingBuffer()
         _uiState.value = _uiState.value.copy(playerState = PlayerState.IDLE, positionMs = 0L)
-        if (StreamingService.instance != null && StreamingService.isStreaming && StreamingService.instance?.activeStreamSource == "DIRECT_AUDIO") {
+        if (StreamingService.instance != null && StreamingService.isStreaming) {
             StreamingService.instance?.stopStreaming()
         }
     }

@@ -96,4 +96,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     fun stopTransmission() {
         playerManager.stopPlayback()
     }
+
+    fun stopPlayback() {
+        playerManager.stopPlayback()
+    }
 }
