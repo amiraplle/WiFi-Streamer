@@ -32,9 +32,10 @@ class AudioCaptureManager(
     private var savedLatencyPreset: BufferLatencyPreset = BufferLatencyPreset.BALANCED
 
     // Reusable buffer pool to prevent GC allocation in the hot loop
-    private val bufferQueue = ArrayBlockingQueue<ByteArray>(8)
+    private val bufferQueue = ArrayBlockingQueue<ByteArray>(16)
     private var bufferSize = 0
     private var actualHardwareEncoding: Int = AudioFormat.ENCODING_PCM_16BIT
+    private var actualHardwareSampleRate: Int = 44100
 
     @Volatile
     var currentFormat: AudioStreamFormat = AudioStreamFormat.FORMAT_44K_16BIT_STEREO
@@ -103,13 +104,14 @@ class AudioCaptureManager(
         val targetChunkSize = bytesPerMs * latencyPreset.durationMs
         bufferSize = (targetChunkSize / format.frameSizeBytes * format.frameSizeBytes).coerceIn(format.frameSizeBytes * 10, 4096)
 
-        // Initialize reusable byte array pool
+        // Initialize reusable byte array pool (16 buffers for high-elasticity burst handling)
         bufferQueue.clear()
-        for (i in 0 until 8) {
+        for (i in 0 until 16) {
             bufferQueue.offer(ByteArray(bufferSize))
         }
 
         try {
+            actualHardwareSampleRate = sampleRate
             audioRecord = if (sourceType == AudioSourceType.INTERNAL_AUDIO && mediaProjection != null) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     val playbackConfigBuilder = AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
@@ -131,11 +133,13 @@ class AudioCaptureManager(
                     val bufferBytes = targetDriverBufferBytes.coerceAtLeast(minHardwareBufferSize * 4)
 
                     try {
-                        AudioRecord.Builder()
+                        val rec = AudioRecord.Builder()
                             .setAudioPlaybackCaptureConfig(playbackConfig)
                             .setAudioFormat(audioFormat)
                             .setBufferSizeInBytes(bufferBytes)
                             .build()
+                        actualHardwareSampleRate = sampleRate
+                        rec
                     } catch (e: Exception) {
                         Log.w(TAG, "Primary AudioRecord build failed (${e.message}), trying 16-bit fallback...")
                         try {
@@ -145,11 +149,13 @@ class AudioCaptureManager(
                                 .setChannelMask(channelConfig)
                                 .build()
                             val fallbackMin = AudioRecord.getMinBufferSize(sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT)
-                            AudioRecord.Builder()
+                            val rec = AudioRecord.Builder()
                                 .setAudioPlaybackCaptureConfig(playbackConfig)
                                 .setAudioFormat(fallbackFormat)
                                 .setBufferSizeInBytes((targetDriverBufferBytes).coerceAtLeast(fallbackMin * 4))
                                 .build()
+                            actualHardwareSampleRate = sampleRate
+                            rec
                         } catch (e2: Exception) {
                             Log.w(TAG, "Secondary 16-bit build failed (${e2.message}), trying 48000Hz 16-bit hardware rate...")
                             val fallback48k = AudioFormat.Builder()
@@ -158,11 +164,13 @@ class AudioCaptureManager(
                                 .setChannelMask(channelConfig)
                                 .build()
                             val min48k = AudioRecord.getMinBufferSize(48000, channelConfig, AudioFormat.ENCODING_PCM_16BIT)
-                            AudioRecord.Builder()
+                            val rec = AudioRecord.Builder()
                                 .setAudioPlaybackCaptureConfig(playbackConfig)
                                 .setAudioFormat(fallback48k)
                                 .setBufferSizeInBytes((48000 * format.frameSizeBytes / 2).coerceAtLeast(min48k * 4))
                                 .build()
+                            actualHardwareSampleRate = 48000
+                            rec
                         }
                     }
                 } else {
@@ -308,10 +316,29 @@ class AudioCaptureManager(
                 }
                 lastAudioTimestamp = now
 
+                // Resample if hardware capture sample rate differs from target transmission sample rate
+                val processedBuffer: ByteArray
+                val processedLength: Int
+                if (actualHardwareSampleRate != currentFormat.sampleRate) {
+                    val resampled = resamplePcm(
+                        inputPcm = finalBuffer,
+                        inputLength = finalLength,
+                        srcSampleRate = actualHardwareSampleRate,
+                        dstSampleRate = currentFormat.sampleRate,
+                        bitDepth = currentFormat.bitDepth,
+                        channels = currentFormat.channelCount
+                    )
+                    processedBuffer = resampled
+                    processedLength = resampled.size
+                } else {
+                    processedBuffer = finalBuffer
+                    processedLength = finalLength
+                }
+
                 // Apply DSP (EQ, bass boost, treble clarity, soft limiter) and volume scaling/mute in-place
                 PcmAudioProcessor.processInPlace(
-                    buffer = finalBuffer,
-                    length = finalLength,
+                    buffer = processedBuffer,
+                    length = processedLength,
                     bitDepth = currentFormat.bitDepth,
                     volumePercent = volumePercent,
                     isMuted = isMuted,
@@ -323,8 +350,8 @@ class AudioCaptureManager(
 
                 // Detect silence
                 val chunkIsSilent = PcmAudioProcessor.isBufferSilent(
-                    buffer = finalBuffer,
-                    length = finalLength,
+                    buffer = processedBuffer,
+                    length = processedLength,
                     bitDepth = currentFormat.bitDepth
                 )
 
@@ -344,7 +371,7 @@ class AudioCaptureManager(
                 }
 
                 // Pass chunk to consumer (network streamer)
-                onAudioChunkReady(finalBuffer, finalLength, chunkIsSilent)
+                onAudioChunkReady(processedBuffer, processedLength, chunkIsSilent)
 
                 // Return buffer to queue
                 bufferQueue.offer(buffer)
@@ -514,5 +541,68 @@ class AudioCaptureManager(
             audioRecord?.release()
         } catch (_: Exception) {}
         audioRecord = null
+    }
+
+    private fun resamplePcm(
+        inputPcm: ByteArray,
+        inputLength: Int,
+        srcSampleRate: Int,
+        dstSampleRate: Int,
+        bitDepth: Int,
+        channels: Int
+    ): ByteArray {
+        if (srcSampleRate == dstSampleRate || inputLength <= 0) return inputPcm
+        val bytesPerSample = bitDepth / 8
+        val frameSize = bytesPerSample * channels
+        val srcFrames = inputLength / frameSize
+        if (srcFrames <= 0) return inputPcm
+
+        val dstFrames = ((srcFrames.toLong() * dstSampleRate) / srcSampleRate).toInt()
+        if (dstFrames <= 0) return ByteArray(0)
+
+        val output = ByteArray(dstFrames * frameSize)
+        val ratio = srcSampleRate.toDouble() / dstSampleRate.toDouble()
+        var outIdx = 0
+
+        for (i in 0 until dstFrames) {
+            val srcPos = i * ratio
+            val srcIndex = srcPos.toInt().coerceAtMost(srcFrames - 1)
+            val nextIndex = (srcIndex + 1).coerceAtMost(srcFrames - 1)
+            val frac = (srcPos - srcIndex).toFloat()
+
+            for (ch in 0 until channels) {
+                if (bitDepth == 16) {
+                    val offset1 = (srcIndex * channels + ch) * 2
+                    val offset2 = (nextIndex * channels + ch) * 2
+                    val s1 = ((inputPcm[offset1 + 1].toInt() shl 8) or (inputPcm[offset1].toInt() and 0xFF)).toShort()
+                    val s2 = ((inputPcm[offset2 + 1].toInt() shl 8) or (inputPcm[offset2].toInt() and 0xFF)).toShort()
+                    val interp = (s1 + frac * (s2 - s1)).toInt().coerceIn(-32768, 32767).toShort()
+                    output[outIdx++] = (interp.toInt() and 0xFF).toByte()
+                    output[outIdx++] = ((interp.toInt() shr 8) and 0xFF).toByte()
+                } else if (bitDepth == 24) {
+                    val offset1 = (srcIndex * channels + ch) * 3
+                    val offset2 = (nextIndex * channels + ch) * 3
+                    var s1 = (inputPcm[offset1 + 2].toInt() shl 16) or ((inputPcm[offset1 + 1].toInt() and 0xFF) shl 8) or (inputPcm[offset1].toInt() and 0xFF)
+                    if ((s1 and 0x800000) != 0) s1 = s1 or 0xFF000000.toInt()
+                    var s2 = (inputPcm[offset2 + 2].toInt() shl 16) or ((inputPcm[offset2 + 1].toInt() and 0xFF) shl 8) or (inputPcm[offset2].toInt() and 0xFF)
+                    if ((s2 and 0x800000) != 0) s2 = s2 or 0xFF000000.toInt()
+                    val interp = (s1 + frac * (s2 - s1)).toInt().coerceIn(-8388608, 8388607)
+                    output[outIdx++] = (interp and 0xFF).toByte()
+                    output[outIdx++] = ((interp shr 8) and 0xFF).toByte()
+                    output[outIdx++] = ((interp shr 16) and 0xFF).toByte()
+                } else {
+                    val offset1 = (srcIndex * channels + ch) * 4
+                    val offset2 = (nextIndex * channels + ch) * 4
+                    val s1 = (inputPcm[offset1 + 3].toInt() shl 24) or ((inputPcm[offset1 + 2].toInt() and 0xFF) shl 16) or ((inputPcm[offset1 + 1].toInt() and 0xFF) shl 8) or (inputPcm[offset1].toInt() and 0xFF)
+                    val s2 = (inputPcm[offset2 + 3].toInt() shl 24) or ((inputPcm[offset2 + 2].toInt() and 0xFF) shl 16) or ((inputPcm[offset2 + 1].toInt() and 0xFF) shl 8) or (inputPcm[offset2].toInt() and 0xFF)
+                    val interp = (s1.toDouble() + frac.toDouble() * (s2.toDouble() - s1.toDouble())).toLong().coerceIn(-2147483648L, 2147483647L).toInt()
+                    output[outIdx++] = (interp and 0xFF).toByte()
+                    output[outIdx++] = ((interp shr 8) and 0xFF).toByte()
+                    output[outIdx++] = ((interp shr 16) and 0xFF).toByte()
+                    output[outIdx++] = ((interp shr 24) and 0xFF).toByte()
+                }
+            }
+        }
+        return output
     }
 }
