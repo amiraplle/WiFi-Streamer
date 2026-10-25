@@ -71,8 +71,8 @@ class StreamingService : Service() {
     private var mediaProjection: MediaProjection? = null
     private var mediaSession: MediaSession? = null
 
-    // Lock-free ring buffer (128 KB = ~370ms of 44.1kHz 16-bit stereo PCM)
-    private val ringBuffer = AudioRingBuffer(128 * 1024)
+    // Lock-free ring buffer (512 KB = ~3.0s of 44.1kHz 16-bit stereo PCM)
+    private val ringBuffer = AudioRingBuffer(512 * 1024)
     private var pacedTransmitter: PacedAudioTransmitter? = null
 
     private var captureManager: AudioCaptureManager? = null
@@ -290,20 +290,29 @@ class StreamingService : Service() {
                     @Suppress("DEPRECATION")
                     intent?.getParcelableExtra("intent_data")
                 }
-                activeStreamSource = intent?.getStringExtra("stream_source")
+                val streamSrc = intent?.getStringExtra("stream_source") ?: "system"
                 if (code != 0) projectionResultCode = code
                 if (data != null) projectionIntentData = data
 
-                val prefs = AppContainer.getPreferences(this).userPreferences.value
-                val effectiveSource = prefs.audioSource
+                if (isStreaming && activeStreamSource == "DIRECT_AUDIO") {
+                    switchToSystemAudio(code, data)
+                } else {
+                    activeStreamSource = streamSrc
+                    val prefs = AppContainer.getPreferences(this).userPreferences.value
+                    val effectiveSource = prefs.audioSource
 
-                startForegroundWithNotification(effectiveSource)
-                startStreamingPipeline(effectiveSource)
+                    startForegroundWithNotification(effectiveSource)
+                    startStreamingPipeline(effectiveSource)
+                }
             }
             ACTION_START_DIRECT -> {
-                activeStreamSource = "DIRECT_AUDIO"
-                startForegroundWithNotification(AudioSourceType.DIRECT_AUDIO)
-                startStreamingPipeline(AudioSourceType.DIRECT_AUDIO)
+                if (isStreaming && activeStreamSource != "DIRECT_AUDIO") {
+                    switchToDirectAudio()
+                } else if (!isStreaming) {
+                    activeStreamSource = "DIRECT_AUDIO"
+                    startForegroundWithNotification(AudioSourceType.DIRECT_AUDIO)
+                    startStreamingPipeline(AudioSourceType.DIRECT_AUDIO)
+                }
             }
             ACTION_STOP -> {
                 val player = AppContainer.getPlayerManager(this)
@@ -525,6 +534,77 @@ class StreamingService : Service() {
 
         // Start Telemetry reporting loop (1 Hz, super low power)
         startStatsLoop()
+    }
+
+    fun switchToDirectAudio() {
+        Log.i(TAG, "switchToDirectAudio: Seamless transition to Direct Music Player")
+        activeStreamSource = "DIRECT_AUDIO"
+        // 1. Immediately halt screen capture / microphone recording
+        captureManager?.stopCapture()
+        // 2. Clear previous capture samples from ring buffer so decoded music starts immediately
+        ringBuffer.clear()
+        // 3. Update active telemetry
+        _telemetry.value = _telemetry.value.copy(
+            audioSource = AudioSourceType.DIRECT_AUDIO,
+            captureStatus = CaptureStatus.CAPTURING
+        )
+        val player = AppContainer.getPlayerManager(this)
+        updatePlayerSessionAndNotification(player.uiState.value)
+    }
+
+    fun switchToSystemAudio(resultCode: Int, data: Intent?) {
+        Log.i(TAG, "switchToSystemAudio: Seamless transition to System Audio Capture")
+        activeStreamSource = "system"
+        // 1. Stop local music player decoding loop
+        val player = AppContainer.getPlayerManager(this)
+        player.stopPlayback(stopService = false)
+
+        // 2. Clear ring buffer so direct music residue is flushed
+        ringBuffer.clear()
+
+        if (resultCode != 0) projectionResultCode = resultCode
+        if (data != null) projectionIntentData = data
+
+        val prefs = AppContainer.getPreferences(this).userPreferences.value
+
+        // 3. Obtain MediaProjection if needed
+        if (mediaProjection == null) {
+            val projData = projectionIntentData
+            val projCode = projectionResultCode
+            if (projData != null && projCode != 0) {
+                try {
+                    val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                    mediaProjection = mpManager.getMediaProjection(projCode, projData)
+                    mediaProjection?.registerCallback(object : MediaProjection.Callback() {
+                        override fun onStop() {
+                            Log.w(TAG, "MediaProjection stopped by system")
+                            mediaProjection = null
+                            if (!isStopping.get()) {
+                                _telemetry.value = _telemetry.value.copy(
+                                    captureStatus = CaptureStatus.ERROR,
+                                    lastError = "MediaProjection revoked by system"
+                                )
+                            }
+                        }
+                    }, null)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to get MediaProjection during switch: ${e.message}", e)
+                }
+            }
+        }
+
+        // 4. Start AudioCaptureManager for INTERNAL_AUDIO
+        captureManager?.startCapture(
+            format = prefs.audioFormat,
+            sourceType = AudioSourceType.INTERNAL_AUDIO,
+            latencyPreset = prefs.bufferPreset,
+            mediaProjection = mediaProjection
+        )
+
+        _telemetry.value = _telemetry.value.copy(
+            audioSource = AudioSourceType.INTERNAL_AUDIO
+        )
+        updateNotification()
     }
 
     private fun startTransport(prefs: UserPreferences) {
@@ -755,6 +835,8 @@ class StreamingService : Service() {
                     val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                     if (bmp != null) {
                         metaBuilder.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, bmp)
+                        metaBuilder.putBitmap(MediaMetadata.METADATA_KEY_ART, bmp)
+                        metaBuilder.putBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON, bmp)
                     }
                 } catch (_: Throwable) {}
             }
@@ -898,7 +980,7 @@ class StreamingService : Service() {
         mediaSession?.let {
             mediaStyle.setMediaSession(it.sessionToken)
         }
-        mediaStyle.setShowActionsInCompactView(0, 1, 2, 3)
+        mediaStyle.setShowActionsInCompactView(0, 1, 3)
         mediaBuilder.style = mediaStyle
 
         return mediaBuilder.build()

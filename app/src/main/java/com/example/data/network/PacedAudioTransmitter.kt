@@ -88,6 +88,8 @@ class PacedAudioTransmitter(
         var isBuffering = true
         var starvationStartTime = 0L
 
+        var consecutiveUnderflows = 0
+
         while (isRunning.get()) {
             val available = ringBuffer.available
             val minCushionBytes = targetPreRollBytes.coerceIn(PACKET_SIZE * 8, 64 * 1024)
@@ -112,6 +114,7 @@ class PacedAudioTransmitter(
                 } else {
                     // Reservoir filled! Seamlessly engage real audio playback
                     isBuffering = false
+                    consecutiveUnderflows = 0
                     nextPacketTimeNs = System.nanoTime()
                     if (starvationStartTime > 0L) {
                         val gapDuration = System.currentTimeMillis() - starvationStartTime
@@ -128,10 +131,17 @@ class PacedAudioTransmitter(
 
             // Active streaming mode:
             if (available < PACKET_SIZE) {
-                // Buffer ran dry due to playback pause or heavy source interruption
+                // Buffer momentarily low: send 1 comfort silence packet to keep DAC clocked
                 sendChunkToTransport(silenceChunk, 0, PACKET_SIZE)
-                isBuffering = true
-                starvationStartTime = System.currentTimeMillis()
+                consecutiveUnderflows++
+                if (starvationStartTime == 0L) {
+                    starvationStartTime = System.currentTimeMillis()
+                }
+
+                // Only engage full re-buffering if starved for more than 12 consecutive packets (~70ms)
+                if (consecutiveUnderflows > 12) {
+                    isBuffering = true
+                }
 
                 if (ratePacingEnabled) {
                     nextPacketTimeNs += packetDurationNs
@@ -145,6 +155,9 @@ class PacedAudioTransmitter(
                 }
                 continue
             }
+
+            // Audio available: reset underflow counter immediately
+            consecutiveUnderflows = 0
 
             // Pull exactly one 1024-byte frame from the ring buffer
             val readCount = ringBuffer.read(chunkBuffer, 0, PACKET_SIZE)

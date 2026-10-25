@@ -86,6 +86,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -302,14 +303,21 @@ fun PlayerScreen(
                         }
                     }
 
+                    val artScale by androidx.compose.animation.core.animateFloatAsState(
+                        targetValue = if (isPlaying) 1.0f else 0.95f,
+                        animationSpec = tween(350, easing = FastOutSlowInEasing),
+                        label = "artScale"
+                    )
+
                     Box(
                         modifier = Modifier
-                            .size(180.dp)
+                            .size(195.dp)
+                            .scale(artScale)
                             .shadow(
-                                elevation = if (isPlaying) 16.dp else 6.dp,
+                                elevation = if (isPlaying) 18.dp else 6.dp,
                                 shape = RoundedCornerShape(18.dp),
-                                ambientColor = if (isPlaying) StreamEmerald.copy(alpha = 0.4f) else Color.Black,
-                                spotColor = if (isPlaying) StreamEmerald.copy(alpha = 0.6f) else Color.Black
+                                ambientColor = if (isPlaying) StreamEmerald.copy(alpha = 0.45f) else Color.Black,
+                                spotColor = if (isPlaying) StreamEmerald.copy(alpha = 0.65f) else Color.Black
                             )
                             .clip(RoundedCornerShape(18.dp))
                             .background(Color(0xFF14141E))
@@ -624,16 +632,27 @@ fun PlayerScreen(
                             )
                         }
 
-                        // Play / Pause tactile hero button (60dp)
+                        // Play / Pause tactile hero button (60dp) with spring scale animation
+                        val playBtnScale by androidx.compose.animation.core.animateFloatAsState(
+                            targetValue = if (isPlaying) 1.05f else 1.0f,
+                            animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = 400f),
+                            label = "playBtnScale"
+                        )
                         Box(
                             modifier = Modifier
                                 .size(60.dp)
-                                .shadow(elevation = 10.dp, shape = CircleShape, ambientColor = Color.White, spotColor = Color.White)
+                                .scale(playBtnScale)
+                                .shadow(
+                                    elevation = if (isPlaying) 14.dp else 8.dp,
+                                    shape = CircleShape,
+                                    ambientColor = if (isPlaying) StreamEmerald else Color.White,
+                                    spotColor = if (isPlaying) StreamEmerald else Color.White
+                                )
                                 .clip(CircleShape)
-                                .background(Color.White)
+                                .background(if (isPlaying) StreamEmerald else Color.White)
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
-                                    indication = ripple(color = Color.Black.copy(alpha = 0.2f))
+                                    indication = ripple(color = Color.Black.copy(alpha = 0.25f))
                                 ) { viewModel.togglePlayPause() }
                                 .testTag("player_play_pause_button"),
                             contentAlignment = Alignment.Center

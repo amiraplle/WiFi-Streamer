@@ -68,7 +68,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     fun startStreaming(context: Context, resultCode: Int, data: Intent?) {
         // Immediately close / stop direct player transmission so screen capture has exclusive access
         try {
-            playerManager.stopPlayback()
+            playerManager.stopPlayback(stopService = false)
         } catch (_: Exception) {}
 
         // Ensure preference reflects System Audio

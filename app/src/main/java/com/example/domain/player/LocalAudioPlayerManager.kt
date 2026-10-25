@@ -57,6 +57,12 @@ class LocalAudioPlayerManager(
     private val isStopped = AtomicBoolean(true)
     private val pendingSeekMs = AtomicLong(-1L)
 
+    // Tracks last stereo sample values to perform pure, click-free Hann window fade-out on pause/stop/skip
+    @Volatile
+    private var lastSampleL: Int = 0
+    @Volatile
+    private var lastSampleR: Int = 0
+
     init {
         val initialPrefs = preferencesRepository.userPreferences.value
         _uiState.value = _uiState.value.copy(
@@ -83,11 +89,72 @@ class LocalAudioPlayerManager(
         preferencesRepository.updateAudioFormat(format)
     }
 
+    /**
+     * Symmetrical 15ms Hann window soft fade-out (supports 16-bit and 24-bit PCM).
+     * Ramps the instantaneous DAC output voltage down to 0, preventing clicks or pops.
+     */
+    private fun writeSoftFadeOut(sampleRate: Int, bitDepth: Int) {
+        val bytesPerSample = bitDepth / 8
+        val frameSize = bytesPerSample * 2
+        val rampFrames = (sampleRate * 15) / 1000 // 15ms
+        if (rampFrames <= 0) return
+
+        val startL = lastSampleL
+        val startR = lastSampleR
+        if (startL == 0 && startR == 0) return
+
+        val fadeOutBytes = ByteArray(rampFrames * frameSize)
+        var outIdx = 0
+
+        for (f in 0 until rampFrames) {
+            val factor = (0.5 * (1.0 + cos(Math.PI * f / rampFrames))).toFloat()
+            if (bitDepth == 16) {
+                val curL = (startL * factor).toInt().coerceIn(-32768, 32767)
+                val curR = (startR * factor).toInt().coerceIn(-32768, 32767)
+                fadeOutBytes[outIdx++] = (curL and 0xFF).toByte()
+                fadeOutBytes[outIdx++] = ((curL shr 8) and 0xFF).toByte()
+                fadeOutBytes[outIdx++] = (curR and 0xFF).toByte()
+                fadeOutBytes[outIdx++] = ((curR shr 8) and 0xFF).toByte()
+            } else {
+                val curL = (startL * factor).toInt().coerceIn(-8388608, 8388607)
+                val curR = (startR * factor).toInt().coerceIn(-8388608, 8388607)
+                fadeOutBytes[outIdx++] = (curL and 0xFF).toByte()
+                fadeOutBytes[outIdx++] = ((curL shr 8) and 0xFF).toByte()
+                fadeOutBytes[outIdx++] = ((curL shr 16) and 0xFF).toByte()
+                fadeOutBytes[outIdx++] = (curR and 0xFF).toByte()
+                fadeOutBytes[outIdx++] = ((curR shr 8) and 0xFF).toByte()
+                fadeOutBytes[outIdx++] = ((curR shr 16) and 0xFF).toByte()
+            }
+        }
+        lastSampleL = 0
+        lastSampleR = 0
+        StreamingService.instance?.writeDirectAudio(fadeOutBytes, 0, fadeOutBytes.size)
+    }
+
     fun playTrackAtIndex(index: Int) {
         val list = _uiState.value.playlist
         if (index !in list.indices) return
 
-        val track = list[index]
+        // Soft fade out outgoing track if playing
+        if (_uiState.value.playerState == PlayerState.PLAYING) {
+            val prefs = preferencesRepository.userPreferences.value
+            writeSoftFadeOut(prefs.sampleRate, prefs.bitDepth)
+        }
+
+        var track = list[index]
+        // Instant artwork guarantee: extract metadata immediately if track was restored from disk without art
+        if (track.artworkBytes == null) {
+            val fullTrack = extractTrackMetadata(track.uri, track.title)
+            if (fullTrack.artworkBytes != null) {
+                track = track.copy(artworkBytes = fullTrack.artworkBytes)
+                val updatedList = list.toMutableList()
+                if (index in updatedList.indices) {
+                    updatedList[index] = track
+                }
+                _uiState.value = _uiState.value.copy(playlist = updatedList)
+            }
+        }
+
         _uiState.value = _uiState.value.copy(
             currentIndex = index,
             currentTrack = track,
@@ -106,6 +173,8 @@ class LocalAudioPlayerManager(
         val state = _uiState.value.playerState
         when (state) {
             PlayerState.PLAYING -> {
+                val prefs = preferencesRepository.userPreferences.value
+                writeSoftFadeOut(prefs.sampleRate, prefs.bitDepth)
                 isPaused.set(true)
                 _uiState.value = _uiState.value.copy(playerState = PlayerState.PAUSED)
             }
@@ -127,6 +196,11 @@ class LocalAudioPlayerManager(
         val list = _uiState.value.playlist
         if (list.isEmpty()) return
 
+        if (_uiState.value.playerState == PlayerState.PLAYING) {
+            val prefs = preferencesRepository.userPreferences.value
+            writeSoftFadeOut(prefs.sampleRate, prefs.bitDepth)
+        }
+
         val nextIndex = if (_uiState.value.isShuffle) {
             list.indices.filter { it != _uiState.value.currentIndex }.randomOrNull() ?: 0
         } else {
@@ -143,6 +217,11 @@ class LocalAudioPlayerManager(
     fun playPrevious() {
         val list = _uiState.value.playlist
         if (list.isEmpty()) return
+
+        if (_uiState.value.playerState == PlayerState.PLAYING) {
+            val prefs = preferencesRepository.userPreferences.value
+            writeSoftFadeOut(prefs.sampleRate, prefs.bitDepth)
+        }
 
         // If played more than 3 seconds, restart current track
         if (_uiState.value.positionMs > 3000L) {
@@ -211,22 +290,31 @@ class LocalAudioPlayerManager(
         deleteSavedPlaylist()
     }
 
-    fun stopPlayback() {
+    fun stopPlayback(stopService: Boolean = true) {
+        if (_uiState.value.playerState == PlayerState.PLAYING) {
+            val prefs = preferencesRepository.userPreferences.value
+            writeSoftFadeOut(prefs.sampleRate, prefs.bitDepth)
+        }
         isStopped.set(true)
         isPaused.set(false)
         playbackJob?.cancel()
         playbackJob = null
         StreamingService.instance?.clearRingBuffer()
         _uiState.value = _uiState.value.copy(playerState = PlayerState.IDLE, positionMs = 0L)
-        if (StreamingService.instance != null && StreamingService.isStreaming) {
+        if (stopService && StreamingService.instance != null && StreamingService.isStreaming && StreamingService.instance?.activeStreamSource == "DIRECT_AUDIO") {
             StreamingService.instance?.stopStreaming()
         }
     }
 
     private fun startPlaybackWorker(track: AudioTrack) {
-        // Stop any non-direct stream (e.g. system screen capture / microphone)
-        if (StreamingService.instance != null && StreamingService.isStreaming && StreamingService.instance?.activeStreamSource != "DIRECT_AUDIO") {
-            StreamingService.instance?.stopStreaming()
+        // Seamlessly switch to direct audio if streaming service is already active
+        val service = StreamingService.instance
+        if (service != null && StreamingService.isStreaming) {
+            if (service.activeStreamSource != "DIRECT_AUDIO") {
+                service.switchToDirectAudio()
+            }
+        } else {
+            StreamingService.startDirectStreaming(context)
         }
 
         isStopped.set(true)
@@ -262,6 +350,10 @@ class LocalAudioPlayerManager(
      * Extracts raw PCM from MP3, FLAC, WAV, AAC, OGG, Opus and sends to both device speaker and UDP pipeline.
      */
     private suspend fun runFileDecodingPlayback(track: AudioTrack) {
+        try {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+        } catch (_: Exception) {}
+
         var pfd: ParcelFileDescriptor? = null
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
@@ -324,11 +416,12 @@ class LocalAudioPlayerManager(
             val bufferInfo = MediaCodec.BufferInfo()
             var isEos = false
             var isStartingRamp = true
-            val targetCushionBytes = 96_000 // Deep ~550ms reservoir prevents starvation underruns completely
+            val targetCushionBytes = 256_000 // Deep ~1.5s reservoir prevents starvation underruns completely when minimized
 
             while (currentCoroutineContext().isActive && !isStopped.get()) {
                 // Check if user paused
                 if (isPaused.get()) {
+                    isStartingRamp = true // On resume, smoothly ramp in with 15ms Hann curve
                     delay(30)
                     continue
                 }
@@ -336,6 +429,7 @@ class LocalAudioPlayerManager(
                 // Check pending seek
                 val seekMs = pendingSeekMs.getAndSet(-1L)
                 if (seekMs >= 0L) {
+                    writeSoftFadeOut(targetSampleRate, targetBitDepth)
                     val seekUs = seekMs * 1000L
                     extractor.seekTo(seekUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
                     codec.flush()
@@ -343,10 +437,10 @@ class LocalAudioPlayerManager(
                     isStartingRamp = true
                 }
 
-                // Regulate buffer cushion: if ring buffer has > 96KB (~550ms), yield CPU to transmitter
+                // Regulate buffer cushion: if ring buffer has > 256KB (~1.5s), yield CPU to transmitter
                 val buffered = StreamingService.instance?.getRingBufferAvailable() ?: 0
                 if (buffered >= targetCushionBytes) {
-                    delay(20)
+                    delay(25)
                     continue
                 }
 
@@ -393,8 +487,38 @@ class LocalAudioPlayerManager(
                         if (formattedPcm.isNotEmpty()) {
                             // Apply 15ms anti-pop soft-ramp on track start or seek resume
                             if (isStartingRamp) {
-                                applySoftRamp(formattedPcm, targetSampleRate, targetBitDepth)
+                                applySoftRamp(formattedPcm, targetSampleRate, targetBitDepth, isFadeOut = false)
                                 isStartingRamp = false
+                            }
+
+                            // Capture last stereo sample in chunk for seamless soft fade-out
+                            if (targetBitDepth == 16 && formattedPcm.size >= 4) {
+                                val offset = formattedPcm.size - 4
+                                val lLow = formattedPcm[offset].toInt() and 0xFF
+                                val lHigh = formattedPcm[offset + 1].toInt()
+                                lastSampleL = ((lHigh shl 8) or lLow).toShort().toInt()
+
+                                val rLow = formattedPcm[offset + 2].toInt() and 0xFF
+                                val rHigh = formattedPcm[offset + 3].toInt()
+                                lastSampleR = ((rHigh shl 8) or rLow).toShort().toInt()
+                            } else if (targetBitDepth == 24 && formattedPcm.size >= 6) {
+                                val offset = formattedPcm.size - 6
+                                val l0 = formattedPcm[offset].toInt() and 0xFF
+                                val l1 = formattedPcm[offset + 1].toInt() and 0xFF
+                                val l2 = formattedPcm[offset + 2].toInt()
+                                lastSampleL = (l2 shl 16) or (l1 shl 8) or l0
+
+                                val r0 = formattedPcm[offset + 3].toInt() and 0xFF
+                                val r1 = formattedPcm[offset + 4].toInt() and 0xFF
+                                val r2 = formattedPcm[offset + 5].toInt()
+                                lastSampleR = (r2 shl 16) or (r1 shl 8) or r0
+                            }
+
+                            // Backpressure check: wait until ring buffer has enough free space to avoid dropping frames
+                            while (currentCoroutineContext().isActive && !isStopped.get()) {
+                                val freeSpace = StreamingService.instance?.getRingBufferFreeSpace() ?: 512_000
+                                if (freeSpace >= formattedPcm.size) break
+                                delay(10)
                             }
 
                             // Write directly to RingBuffer for PacedAudioTransmitter: ZERO phone speaker leak
@@ -641,27 +765,40 @@ class LocalAudioPlayerManager(
 
         var retriever: MediaMetadataRetriever? = null
         try {
-            // Safely open ParcelFileDescriptor to ensure readable permission without native crashes
-            context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
-                retriever = MediaMetadataRetriever()
-                retriever?.setDataSource(pfd.fileDescriptor)
-                retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)?.let {
+            retriever = MediaMetadataRetriever()
+            var dataSourceSet = false
+            try {
+                retriever.setDataSource(context, uri)
+                dataSourceSet = true
+            } catch (_: Throwable) {}
+
+            if (!dataSourceSet) {
+                try {
+                    context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                        retriever.setDataSource(pfd.fileDescriptor, 0, pfd.statSize)
+                        dataSourceSet = true
+                    }
+                } catch (_: Throwable) {}
+            }
+
+            if (dataSourceSet) {
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)?.let {
                     if (it.isNotBlank()) title = it
                 }
-                retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)?.let {
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)?.let {
                     if (it.isNotBlank()) artist = it
                 }
-                retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)?.let {
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)?.let {
                     if (it.isNotBlank()) album = it
                 }
-                retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.let {
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.let {
                     durationMs = it
                 }
-                retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)?.let {
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)?.let {
                     mimeType = it
                 }
                 // Extract real embedded album artwork
-                val rawArt = retriever?.embeddedPicture
+                val rawArt = retriever.embeddedPicture
                 artworkBytes = processArtwork(rawArt)
             }
         } catch (_: Throwable) {
@@ -704,7 +841,10 @@ class LocalAudioPlayerManager(
                 inSampleSize = sampleSize
                 inPreferredConfig = Bitmap.Config.RGB_565
             }
-            val bitmap = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, decodeOptions) ?: return null
+            val bitmap = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, decodeOptions)
+                ?: BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
+                ?: return rawBytes
+
             val stream = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
             bitmap.recycle()
@@ -714,7 +854,7 @@ class LocalAudioPlayerManager(
         }
     }
 
-    private fun applySoftRamp(pcm: ByteArray, sampleRate: Int, bitDepth: Int) {
+    private fun applySoftRamp(pcm: ByteArray, sampleRate: Int, bitDepth: Int, isFadeOut: Boolean = false) {
         val bytesPerSample = bitDepth / 8
         val frameSize = bytesPerSample * 2 // stereo
         val rampFrames = (sampleRate * 15) / 1000 // 15ms
@@ -723,7 +863,12 @@ class LocalAudioPlayerManager(
 
         var idx = 0
         for (f in 0 until framesToProcess) {
-            val factor = (0.5 * (1.0 - cos(Math.PI * f / framesToProcess))).toFloat()
+            val factor = if (!isFadeOut) {
+                (0.5 * (1.0 - cos(Math.PI * f / framesToProcess))).toFloat()
+            } else {
+                (0.5 * (1.0 + cos(Math.PI * f / framesToProcess))).toFloat()
+            }
+
             if (bitDepth == 16) {
                 val lLow = pcm[idx].toInt() and 0xFF
                 val lHigh = pcm[idx + 1].toInt()
@@ -738,6 +883,24 @@ class LocalAudioPlayerManager(
                 val rampedR = (rSample * factor).toInt().coerceIn(-32768, 32767).toShort()
                 pcm[idx + 2] = (rampedR.toInt() and 0xFF).toByte()
                 pcm[idx + 3] = ((rampedR.toInt() shr 8) and 0xFF).toByte()
+            } else if (bitDepth == 24) {
+                val l0 = pcm[idx].toInt() and 0xFF
+                val l1 = pcm[idx + 1].toInt() and 0xFF
+                val l2 = pcm[idx + 2].toInt()
+                val lSample = (l2 shl 16) or (l1 shl 8) or l0
+                val rampedL = (lSample * factor).toInt().coerceIn(-8388608, 8388607)
+                pcm[idx] = (rampedL and 0xFF).toByte()
+                pcm[idx + 1] = ((rampedL shr 8) and 0xFF).toByte()
+                pcm[idx + 2] = ((rampedL shr 16) and 0xFF).toByte()
+
+                val r0 = pcm[idx + 3].toInt() and 0xFF
+                val r1 = pcm[idx + 4].toInt() and 0xFF
+                val r2 = pcm[idx + 5].toInt()
+                val rSample = (r2 shl 16) or (r1 shl 8) or r0
+                val rampedR = (rSample * factor).toInt().coerceIn(-8388608, 8388607)
+                pcm[idx + 3] = (rampedR and 0xFF).toByte()
+                pcm[idx + 4] = ((rampedR shr 8) and 0xFF).toByte()
+                pcm[idx + 5] = ((rampedR shr 16) and 0xFF).toByte()
             }
             idx += frameSize
         }

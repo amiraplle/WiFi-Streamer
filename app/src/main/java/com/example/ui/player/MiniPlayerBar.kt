@@ -1,9 +1,11 @@
 package com.example.ui.player
 
+import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -12,7 +14,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +24,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -43,6 +48,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
@@ -91,9 +98,14 @@ fun MiniPlayerBar(
             label = "rotation"
         )
 
-        val progress = if (uiState.durationMs > 0) {
+        val rawProgress = if (uiState.durationMs > 0) {
             (uiState.positionMs.toFloat() / uiState.durationMs.toFloat()).coerceIn(0f, 1f)
         } else 0f
+        val animatedProgress by animateFloatAsState(
+            targetValue = rawProgress,
+            animationSpec = tween(durationMillis = 250, easing = LinearEasing),
+            label = "mini_progress"
+        )
 
         Surface(
             modifier = Modifier
@@ -118,26 +130,44 @@ fun MiniPlayerBar(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Left: Spinning disc icon + Title & Artist
+                    // Left: Real Album Artwork Thumbnail (or spinning disc fallback) + Title & Artist
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f)
                     ) {
+                        val artBitmap = remember(track.id, track.artworkBytes) {
+                            track.artworkBytes?.let { bytes ->
+                                try {
+                                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                                } catch (_: Throwable) { null }
+                            }
+                        }
+
                         Box(
                             modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF22222E)),
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF22222E))
+                                .border(1.dp, if (isPlaying) StreamEmerald.copy(alpha = 0.5f) else Color(0xFF333344), RoundedCornerShape(8.dp)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Audiotrack,
-                                contentDescription = null,
-                                tint = if (isPlaying) StreamEmerald else Color.White,
-                                modifier = Modifier
-                                    .size(20.dp)
-                                    .rotate(if (isPlaying) rotationAngle else 0f)
-                            )
+                            if (artBitmap != null) {
+                                Image(
+                                    bitmap = artBitmap,
+                                    contentDescription = track.title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Outlined.Audiotrack,
+                                    contentDescription = null,
+                                    tint = if (isPlaying) StreamEmerald else Color.White,
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .rotate(if (isPlaying) rotationAngle else 0f)
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.width(10.dp))
@@ -216,7 +246,7 @@ fun MiniPlayerBar(
                 ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(fraction = progress)
+                            .fillMaxWidth(fraction = animatedProgress)
                             .height(2.5.dp)
                             .background(StreamEmerald)
                     )

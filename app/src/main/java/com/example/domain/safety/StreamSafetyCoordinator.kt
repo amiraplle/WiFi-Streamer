@@ -26,6 +26,12 @@ object StreamSafetyCoordinator {
         StreamingService.projectionResultCode = resultCode
         StreamingService.projectionIntentData = data
 
+        val service = StreamingService.instance
+        if (service != null && StreamingService.isStreaming) {
+            service.switchToSystemAudio(resultCode, data)
+            return
+        }
+
         val startIntent = Intent(context, StreamingService::class.java).apply {
             action = StreamingService.ACTION_START
             putExtra("result_code", resultCode)

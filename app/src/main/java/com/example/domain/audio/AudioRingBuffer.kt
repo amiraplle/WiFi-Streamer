@@ -8,7 +8,7 @@ import kotlin.concurrent.withLock
  * Decouples the audio capture thread (Browser/AudioRecord) from the network transmission thread,
  * ensuring network latency spikes and buffer fluctuations never stall audio capture or corrupt sample alignment.
  */
-class AudioRingBuffer(val capacity: Int = 256 * 1024) {
+class AudioRingBuffer(val capacity: Int = 512 * 1024) {
 
     private val buffer = ByteArray(capacity)
     private var writePos = 0
