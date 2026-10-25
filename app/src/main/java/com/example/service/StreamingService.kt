@@ -71,7 +71,7 @@ class StreamingService : Service() {
     private var mediaProjection: MediaProjection? = null
     private var mediaSession: MediaSession? = null
 
-    // Lock-free ring buffer (512 KB = ~3.0s of 44.1kHz 16-bit stereo PCM)
+    // Lock-free ring buffer (512 KB = ~2.7s of 48kHz 16-bit stereo PCM)
     private val ringBuffer = AudioRingBuffer(512 * 1024)
     private var pacedTransmitter: PacedAudioTransmitter? = null
 

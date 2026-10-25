@@ -45,7 +45,7 @@ class UdpStreamClient(
     // Pre-allocated reusable packet to avoid heap thrashing in the audio loop
     private val packetBuffer = ByteArray(MAX_UDP_PAYLOAD)
     private var datagramPacket: DatagramPacket? = null
-    private var currentFormat: AudioStreamFormat = AudioStreamFormat.FORMAT_44K_16BIT_STEREO
+    private var currentFormat: AudioStreamFormat = AudioStreamFormat.FORMAT_48K_16BIT_STEREO
 
     @Synchronized
     fun connectAndStart(

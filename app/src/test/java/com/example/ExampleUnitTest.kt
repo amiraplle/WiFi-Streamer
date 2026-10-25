@@ -16,11 +16,6 @@ class ExampleUnitTest {
 
     @Test
     fun testAudioStreamFormatCalculations() {
-        val format44 = AudioStreamFormat.FORMAT_44K_16BIT_STEREO
-        assertEquals(2, format44.bytesPerSample)
-        assertEquals(4, format44.frameSizeBytes)
-        assertEquals(1411, format44.bitrateKbps)
-
         val format48_16 = AudioStreamFormat.FORMAT_48K_16BIT_STEREO
         assertEquals(2, format48_16.bytesPerSample)
         assertEquals(4, format48_16.frameSizeBytes)
@@ -30,6 +25,11 @@ class ExampleUnitTest {
         assertEquals(3, format48_24.bytesPerSample)
         assertEquals(6, format48_24.frameSizeBytes)
         assertEquals(2304, format48_24.bitrateKbps)
+
+        val format48_32 = AudioStreamFormat.FORMAT_48K_32BIT_STEREO
+        assertEquals(4, format48_32.bytesPerSample)
+        assertEquals(8, format48_32.frameSizeBytes)
+        assertEquals(3072, format48_32.bitrateKbps)
     }
 
     @Test
@@ -53,21 +53,21 @@ class ExampleUnitTest {
 
     @Test
     fun testC3ProtocolHeaderModes() {
-        // In Auto mode: 44.1/16 must return null (legacy pure raw PCM)
-        val headerAuto44 = C3Protocol.getInitialHeader(AudioStreamFormat.FORMAT_44K_16BIT_STEREO, HeaderMode.AUTO)
-        assertNull(headerAuto44)
+        // In Auto mode: 48/16 returns null (standard raw PCM)
+        val headerAuto48_16 = C3Protocol.getInitialHeader(AudioStreamFormat.FORMAT_48K_16BIT_STEREO, HeaderMode.AUTO)
+        assertNull(headerAuto48_16)
 
-        // In Auto mode: 48/16 must return C3 header
-        val headerAuto48 = C3Protocol.getInitialHeader(AudioStreamFormat.FORMAT_48K_16BIT_STEREO, HeaderMode.AUTO)
-        assertNotNull(headerAuto48)
-        assertEquals(16, headerAuto48!!.size)
+        // In Auto mode: 48/24 returns C3 header
+        val headerAuto48_24 = C3Protocol.getInitialHeader(AudioStreamFormat.FORMAT_48K_24BIT_STEREO, HeaderMode.AUTO)
+        assertNotNull(headerAuto48_24)
+        assertEquals(16, headerAuto48_24!!.size)
 
         // In Raw PCM mode: always null
         val headerRaw = C3Protocol.getInitialHeader(AudioStreamFormat.FORMAT_48K_24BIT_STEREO, HeaderMode.RAW_PCM)
         assertNull(headerRaw)
 
         // In WAV Header mode: 44 bytes
-        val headerWav = C3Protocol.getInitialHeader(AudioStreamFormat.FORMAT_44K_16BIT_STEREO, HeaderMode.WAV_HEADER)
+        val headerWav = C3Protocol.getInitialHeader(AudioStreamFormat.FORMAT_48K_16BIT_STEREO, HeaderMode.WAV_HEADER)
         assertNotNull(headerWav)
         assertEquals(44, headerWav!!.size)
     }

@@ -16,7 +16,7 @@ data class UserPreferences(
     val targetPort: Int = 50005,
     val protocolMode: ProtocolMode = ProtocolMode.RAW_UDP,
     val audioSource: AudioSourceType = AudioSourceType.INTERNAL_AUDIO,
-    val sampleRate: Int = 44100,
+    val sampleRate: Int = 48000,
     val bitDepth: Int = 16,
     val channelCount: Int = 2,
     val headerMode: HeaderMode = HeaderMode.AUTO,
@@ -75,7 +75,7 @@ class UserPreferencesRepository(context: Context) {
                     else -> AudioSourceType.INTERNAL_AUDIO
                 }
             },
-            sampleRate = prefs.getInt("sample_rate", 44100),
+            sampleRate = prefs.getInt("sample_rate", 48000),
             bitDepth = prefs.getInt("bit_depth", 16),
             channelCount = prefs.getInt("channel_count", 2),
             headerMode = try {

@@ -28,7 +28,7 @@ class PacedAudioTransmitter(
     private val isRunning = AtomicBoolean(false)
     private var transmitterThread: Thread? = null
 
-    // Standard 1024-byte packet size (256 stereo 16-bit frames = ~5.8ms @ 44.1kHz)
+    // Standard 1024-byte packet size (256 stereo 16-bit frames = ~5.3ms @ 48kHz)
     // Fits comfortably in a single UDP packet (MTU < 1400) without fragmentation
     private val PACKET_SIZE = 1024
     private val chunkBuffer = ByteArray(PACKET_SIZE)
@@ -38,11 +38,11 @@ class PacedAudioTransmitter(
     var ratePacingEnabled: Boolean = true
 
     @Volatile
-    var currentFormat: AudioStreamFormat = AudioStreamFormat.FORMAT_44K_16BIT_STEREO
+    var currentFormat: AudioStreamFormat = AudioStreamFormat.FORMAT_48K_16BIT_STEREO
 
-    // Target jitter buffer pre-roll in bytes (~150ms default = 26,460 bytes for 44.1kHz stereo)
+    // Target jitter buffer pre-roll in bytes (~150ms default = 28,800 bytes for 48kHz stereo)
     @Volatile
-    var targetPreRollBytes: Int = 26460
+    var targetPreRollBytes: Int = 28800
 
     fun setTargetLatencyPreset(preset: com.example.model.BufferLatencyPreset, format: AudioStreamFormat) {
         val bytesPerSec = format.sampleRate.toLong() * format.frameSizeBytes
@@ -81,7 +81,7 @@ class PacedAudioTransmitter(
 
     private fun transmissionLoop() {
         val bytesPerSec = (currentFormat.sampleRate.toLong() * currentFormat.frameSizeBytes).coerceAtLeast(1L)
-        // Duration of one 1024-byte packet in nanoseconds (~5,804,988 ns at 44.1kHz stereo)
+        // Duration of one 1024-byte packet in nanoseconds (~5,333,333 ns at 48kHz stereo)
         val packetDurationNs = (PACKET_SIZE.toLong() * 1_000_000_000L) / bytesPerSec
 
         var nextPacketTimeNs = System.nanoTime()

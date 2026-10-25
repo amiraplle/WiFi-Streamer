@@ -25,7 +25,7 @@ enum class AudioSourceType(val displayName: String, val requiresScreenCapture: B
 }
 
 enum class HeaderMode(val displayName: String, val description: String) {
-    AUTO("Auto Negotiate", "Raw PCM for 44.1/16; C3 sync header for 48kHz / 24-bit"),
+    AUTO("Auto Negotiate", "Raw PCM for 48kHz / 16-bit; C3 sync header for 24-bit / 32-bit"),
     ALWAYS_HEADER("Always C3 Header", "Includes 16-byte C3 header for format auto-detection"),
     RAW_PCM("Legacy Raw PCM", "Pure PCM byte stream without header (Current C3 default)"),
     WAV_HEADER("WAV Header", "Prepends standard 44-byte RIFF/WAV header")

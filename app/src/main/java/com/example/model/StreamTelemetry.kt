@@ -3,7 +3,7 @@ package com.example.model
 data class StreamTelemetry(
     val streamingState: StreamingState = StreamingState.IDLE,
     val captureStatus: CaptureStatus = CaptureStatus.IDLE,
-    val format: AudioStreamFormat = AudioStreamFormat.FORMAT_44K_16BIT_STEREO,
+    val format: AudioStreamFormat = AudioStreamFormat.FORMAT_48K_16BIT_STEREO,
     val audioSource: AudioSourceType = AudioSourceType.DIRECT_AUDIO,
     val targetHost: String = "c3music.local",
     val targetPort: Int = 50005,

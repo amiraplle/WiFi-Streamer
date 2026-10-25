@@ -57,7 +57,7 @@ class AudioDspEngine {
     private val leftHistory = Array(BAND_COUNT) { FloatArray(4) }
     private val rightHistory = Array(BAND_COUNT) { FloatArray(4) }
 
-    private var currentSampleRate: Int = 44100
+    private var currentSampleRate: Int = 48000
 
     init {
         updateCoefficients()

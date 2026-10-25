@@ -136,11 +136,7 @@ fun MiniPlayerBar(
                         modifier = Modifier.weight(1f)
                     ) {
                         val artBitmap = remember(track.id, track.artworkBytes) {
-                            track.artworkBytes?.let { bytes ->
-                                try {
-                                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-                                } catch (_: Throwable) { null }
-                            }
+                            ArtworkCache.getOrDecode(track.id, track.artworkBytes)
                         }
 
                         Box(

@@ -39,10 +39,9 @@ object C3Protocol {
             HeaderMode.RAW_PCM -> null
             HeaderMode.ALWAYS_HEADER -> createC3Header(format)
             HeaderMode.AUTO -> {
-                // If standard 44.1kHz / 16-bit / stereo, send pure raw PCM for 100% backward
-                // compatibility with existing legacy C3 firmware.
-                // If higher quality format (48kHz or 24-bit), send C3 sync header.
-                if (format == AudioStreamFormat.FORMAT_44K_16BIT_STEREO) {
+                // If standard 48kHz / 16-bit / stereo, send pure raw PCM.
+                // If higher resolution format (24-bit or 32-bit), send C3 sync header.
+                if (format == AudioStreamFormat.FORMAT_48K_16BIT_STEREO) {
                     null
                 } else {
                     createC3Header(format)

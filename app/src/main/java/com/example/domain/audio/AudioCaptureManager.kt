@@ -35,10 +35,10 @@ class AudioCaptureManager(
     private val bufferQueue = ArrayBlockingQueue<ByteArray>(16)
     private var bufferSize = 0
     private var actualHardwareEncoding: Int = AudioFormat.ENCODING_PCM_16BIT
-    private var actualHardwareSampleRate: Int = 44100
+    private var actualHardwareSampleRate: Int = 48000
 
     @Volatile
-    var currentFormat: AudioStreamFormat = AudioStreamFormat.FORMAT_44K_16BIT_STEREO
+    var currentFormat: AudioStreamFormat = AudioStreamFormat.FORMAT_48K_16BIT_STEREO
         private set
 
     @Volatile

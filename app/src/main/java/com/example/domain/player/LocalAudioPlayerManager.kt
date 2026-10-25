@@ -108,14 +108,18 @@ class LocalAudioPlayerManager(
 
         for (f in 0 until rampFrames) {
             val factor = (0.5 * (1.0 + cos(Math.PI * f / rampFrames))).toFloat()
-            if (bitDepth == 16) {
-                val curL = (startL * factor).toInt().coerceIn(-32768, 32767)
-                val curR = (startR * factor).toInt().coerceIn(-32768, 32767)
+            if (bitDepth == 32) {
+                val curL = (startL.toLong() * factor).toLong().coerceIn(-2147483648L, 2147483647L).toInt()
+                val curR = (startR.toLong() * factor).toLong().coerceIn(-2147483648L, 2147483647L).toInt()
                 fadeOutBytes[outIdx++] = (curL and 0xFF).toByte()
                 fadeOutBytes[outIdx++] = ((curL shr 8) and 0xFF).toByte()
+                fadeOutBytes[outIdx++] = ((curL shr 16) and 0xFF).toByte()
+                fadeOutBytes[outIdx++] = ((curL shr 24) and 0xFF).toByte()
                 fadeOutBytes[outIdx++] = (curR and 0xFF).toByte()
                 fadeOutBytes[outIdx++] = ((curR shr 8) and 0xFF).toByte()
-            } else {
+                fadeOutBytes[outIdx++] = ((curR shr 16) and 0xFF).toByte()
+                fadeOutBytes[outIdx++] = ((curR shr 24) and 0xFF).toByte()
+            } else if (bitDepth == 24) {
                 val curL = (startL * factor).toInt().coerceIn(-8388608, 8388607)
                 val curR = (startR * factor).toInt().coerceIn(-8388608, 8388607)
                 fadeOutBytes[outIdx++] = (curL and 0xFF).toByte()
@@ -124,6 +128,13 @@ class LocalAudioPlayerManager(
                 fadeOutBytes[outIdx++] = (curR and 0xFF).toByte()
                 fadeOutBytes[outIdx++] = ((curR shr 8) and 0xFF).toByte()
                 fadeOutBytes[outIdx++] = ((curR shr 16) and 0xFF).toByte()
+            } else {
+                val curL = (startL * factor).toInt().coerceIn(-32768, 32767)
+                val curR = (startR * factor).toInt().coerceIn(-32768, 32767)
+                fadeOutBytes[outIdx++] = (curL and 0xFF).toByte()
+                fadeOutBytes[outIdx++] = ((curL shr 8) and 0xFF).toByte()
+                fadeOutBytes[outIdx++] = (curR and 0xFF).toByte()
+                fadeOutBytes[outIdx++] = ((curR shr 8) and 0xFF).toByte()
             }
         }
         lastSampleL = 0
@@ -386,7 +397,7 @@ class LocalAudioPlayerManager(
             val mime = mediaFormat.getString(MediaFormat.KEY_MIME) ?: "audio/raw"
             val sourceSampleRate = if (mediaFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
                 mediaFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-            } else 44100
+            } else 48000
 
             val sourceChannels = if (mediaFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
                 mediaFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
@@ -403,9 +414,21 @@ class LocalAudioPlayerManager(
             val targetSampleRate = prefs.sampleRate
             val targetBitDepth = prefs.bitDepth
 
+            val uriLower = track.uri.toString().lowercase()
+            val titleLower = track.title.lowercase()
+            val codecDisplay = when {
+                mime.contains("opus", ignoreCase = true) || uriLower.contains(".opus") || titleLower.contains(".opus") || track.mimeType.contains("opus", ignoreCase = true) -> "OPUS"
+                mime.contains("flac", ignoreCase = true) || uriLower.contains(".flac") -> "FLAC"
+                mime.contains("wav", ignoreCase = true) || uriLower.contains(".wav") -> "WAV"
+                mime.contains("mp4a", ignoreCase = true) || mime.contains("aac", ignoreCase = true) || uriLower.contains(".m4a") -> "AAC"
+                mime.contains("mp3", ignoreCase = true) || mime.contains("mpeg", ignoreCase = true) || uriLower.contains(".mp3") -> "MP3"
+                mime.contains("ogg", ignoreCase = true) || mime.contains("vorbis", ignoreCase = true) -> "OGG"
+                else -> track.formatDisplay
+            }
+
             _uiState.value = _uiState.value.copy(
                 durationMs = totalDurationMs,
-                sourceFormatInfo = "${mime.substringAfterLast("/")} • ${sourceSampleRate / 1000.0} kHz • ${if (sourceChannels == 2) "Stereo" else "Mono"}",
+                sourceFormatInfo = "$codecDisplay • ${sourceSampleRate / 1000.0} kHz • ${if (sourceChannels == 2) "Stereo" else "Mono"}",
                 playerState = PlayerState.PLAYING
             )
 
@@ -492,15 +515,19 @@ class LocalAudioPlayerManager(
                             }
 
                             // Capture last stereo sample in chunk for seamless soft fade-out
-                            if (targetBitDepth == 16 && formattedPcm.size >= 4) {
-                                val offset = formattedPcm.size - 4
-                                val lLow = formattedPcm[offset].toInt() and 0xFF
-                                val lHigh = formattedPcm[offset + 1].toInt()
-                                lastSampleL = ((lHigh shl 8) or lLow).toShort().toInt()
+                            if (targetBitDepth == 32 && formattedPcm.size >= 8) {
+                                val offset = formattedPcm.size - 8
+                                val l0 = formattedPcm[offset].toInt() and 0xFF
+                                val l1 = formattedPcm[offset + 1].toInt() and 0xFF
+                                val l2 = formattedPcm[offset + 2].toInt() and 0xFF
+                                val l3 = formattedPcm[offset + 3].toInt()
+                                lastSampleL = (l3 shl 24) or (l2 shl 16) or (l1 shl 8) or l0
 
-                                val rLow = formattedPcm[offset + 2].toInt() and 0xFF
-                                val rHigh = formattedPcm[offset + 3].toInt()
-                                lastSampleR = ((rHigh shl 8) or rLow).toShort().toInt()
+                                val r0 = formattedPcm[offset + 4].toInt() and 0xFF
+                                val r1 = formattedPcm[offset + 5].toInt() and 0xFF
+                                val r2 = formattedPcm[offset + 6].toInt() and 0xFF
+                                val r3 = formattedPcm[offset + 7].toInt()
+                                lastSampleR = (r3 shl 24) or (r2 shl 16) or (r1 shl 8) or r0
                             } else if (targetBitDepth == 24 && formattedPcm.size >= 6) {
                                 val offset = formattedPcm.size - 6
                                 val l0 = formattedPcm[offset].toInt() and 0xFF
@@ -512,6 +539,15 @@ class LocalAudioPlayerManager(
                                 val r1 = formattedPcm[offset + 4].toInt() and 0xFF
                                 val r2 = formattedPcm[offset + 5].toInt()
                                 lastSampleR = (r2 shl 16) or (r1 shl 8) or r0
+                            } else if (targetBitDepth == 16 && formattedPcm.size >= 4) {
+                                val offset = formattedPcm.size - 4
+                                val lLow = formattedPcm[offset].toInt() and 0xFF
+                                val lHigh = formattedPcm[offset + 1].toInt()
+                                lastSampleL = ((lHigh shl 8) or lLow).toShort().toInt()
+
+                                val rLow = formattedPcm[offset + 2].toInt() and 0xFF
+                                val rHigh = formattedPcm[offset + 3].toInt()
+                                lastSampleR = ((rHigh shl 8) or rLow).toShort().toInt()
                             }
 
                             // Backpressure check: wait until ring buffer has enough free space to avoid dropping frames
@@ -527,7 +563,10 @@ class LocalAudioPlayerManager(
 
                         val currentPositionMs = bufferInfo.presentationTimeUs / 1000L
                         if (currentPositionMs >= 0) {
-                            _uiState.value = _uiState.value.copy(positionMs = currentPositionMs)
+                            val lastPos = _uiState.value.positionMs
+                            if (currentPositionMs - lastPos >= 250L || currentPositionMs < lastPos) {
+                                _uiState.value = _uiState.value.copy(positionMs = currentPositionMs)
+                            }
                         }
                     }
 
@@ -584,7 +623,7 @@ class LocalAudioPlayerManager(
             return ByteArray(0)
         }
 
-        // Fast passthrough if source already matches target (standard 44.1kHz 16-bit stereo)
+        // Fast passthrough if source already matches target (standard 48kHz 16-bit stereo)
         if (sourceSampleRate == targetSampleRate && sourceChannels == 2 && targetBitDepth == 16) {
             return inputPcm
         }
@@ -635,7 +674,19 @@ class LocalAudioPlayerManager(
             val finalLeft = (left1 + frac * (left2 - left1)).toInt().coerceIn(-32768, 32767)
             val finalRight = (right1 + frac * (right2 - right1)).toInt().coerceIn(-32768, 32767)
 
-            if (targetBitDepth == 24) {
+            if (targetBitDepth == 32) {
+                val s32L = finalLeft shl 16
+                outputBytes[outIdx++] = (s32L and 0xFF).toByte()
+                outputBytes[outIdx++] = ((s32L shr 8) and 0xFF).toByte()
+                outputBytes[outIdx++] = ((s32L shr 16) and 0xFF).toByte()
+                outputBytes[outIdx++] = ((s32L shr 24) and 0xFF).toByte()
+
+                val s32R = finalRight shl 16
+                outputBytes[outIdx++] = (s32R and 0xFF).toByte()
+                outputBytes[outIdx++] = ((s32R shr 8) and 0xFF).toByte()
+                outputBytes[outIdx++] = ((s32R shr 16) and 0xFF).toByte()
+                outputBytes[outIdx++] = ((s32R shr 24) and 0xFF).toByte()
+            } else if (targetBitDepth == 24) {
                 val s24L = finalLeft shl 8
                 outputBytes[outIdx++] = (s24L and 0xFF).toByte()
                 outputBytes[outIdx++] = ((s24L shr 8) and 0xFF).toByte()
@@ -797,6 +848,13 @@ class LocalAudioPlayerManager(
                 retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)?.let {
                     mimeType = it
                 }
+
+                val uriStrLower = uri.toString().lowercase()
+                val nameLower = fallbackName.lowercase()
+                if (nameLower.endsWith(".opus") || uriStrLower.endsWith(".opus") || uriStrLower.contains(".opus") || mimeType.contains("opus")) {
+                    mimeType = "audio/opus"
+                }
+
                 // Extract real embedded album artwork
                 val rawArt = retriever.embeddedPicture
                 artworkBytes = processArtwork(rawArt)
@@ -869,20 +927,28 @@ class LocalAudioPlayerManager(
                 (0.5 * (1.0 + cos(Math.PI * f / framesToProcess))).toFloat()
             }
 
-            if (bitDepth == 16) {
-                val lLow = pcm[idx].toInt() and 0xFF
-                val lHigh = pcm[idx + 1].toInt()
-                val lSample = ((lHigh shl 8) or lLow).toShort()
-                val rampedL = (lSample * factor).toInt().coerceIn(-32768, 32767).toShort()
-                pcm[idx] = (rampedL.toInt() and 0xFF).toByte()
-                pcm[idx + 1] = ((rampedL.toInt() shr 8) and 0xFF).toByte()
+            if (bitDepth == 32) {
+                val l0 = pcm[idx].toInt() and 0xFF
+                val l1 = pcm[idx + 1].toInt() and 0xFF
+                val l2 = pcm[idx + 2].toInt() and 0xFF
+                val l3 = pcm[idx + 3].toInt()
+                val lSample = (l3 shl 24) or (l2 shl 16) or (l1 shl 8) or l0
+                val rampedL = (lSample.toLong() * factor).toLong().coerceIn(-2147483648L, 2147483647L).toInt()
+                pcm[idx] = (rampedL and 0xFF).toByte()
+                pcm[idx + 1] = ((rampedL shr 8) and 0xFF).toByte()
+                pcm[idx + 2] = ((rampedL shr 16) and 0xFF).toByte()
+                pcm[idx + 3] = ((rampedL shr 24) and 0xFF).toByte()
 
-                val rLow = pcm[idx + 2].toInt() and 0xFF
-                val rHigh = pcm[idx + 3].toInt()
-                val rSample = ((rHigh shl 8) or rLow).toShort()
-                val rampedR = (rSample * factor).toInt().coerceIn(-32768, 32767).toShort()
-                pcm[idx + 2] = (rampedR.toInt() and 0xFF).toByte()
-                pcm[idx + 3] = ((rampedR.toInt() shr 8) and 0xFF).toByte()
+                val r0 = pcm[idx + 4].toInt() and 0xFF
+                val r1 = pcm[idx + 5].toInt() and 0xFF
+                val r2 = pcm[idx + 6].toInt() and 0xFF
+                val r3 = pcm[idx + 7].toInt()
+                val rSample = (r3 shl 24) or (r2 shl 16) or (r1 shl 8) or r0
+                val rampedR = (rSample.toLong() * factor).toLong().coerceIn(-2147483648L, 2147483647L).toInt()
+                pcm[idx + 4] = (rampedR and 0xFF).toByte()
+                pcm[idx + 5] = ((rampedR shr 8) and 0xFF).toByte()
+                pcm[idx + 6] = ((rampedR shr 16) and 0xFF).toByte()
+                pcm[idx + 7] = ((rampedR shr 24) and 0xFF).toByte()
             } else if (bitDepth == 24) {
                 val l0 = pcm[idx].toInt() and 0xFF
                 val l1 = pcm[idx + 1].toInt() and 0xFF
@@ -901,6 +967,20 @@ class LocalAudioPlayerManager(
                 pcm[idx + 3] = (rampedR and 0xFF).toByte()
                 pcm[idx + 4] = ((rampedR shr 8) and 0xFF).toByte()
                 pcm[idx + 5] = ((rampedR shr 16) and 0xFF).toByte()
+            } else {
+                val lLow = pcm[idx].toInt() and 0xFF
+                val lHigh = pcm[idx + 1].toInt()
+                val lSample = ((lHigh shl 8) or lLow).toShort()
+                val rampedL = (lSample * factor).toInt().coerceIn(-32768, 32767).toShort()
+                pcm[idx] = (rampedL.toInt() and 0xFF).toByte()
+                pcm[idx + 1] = ((rampedL.toInt() shr 8) and 0xFF).toByte()
+
+                val rLow = pcm[idx + 2].toInt() and 0xFF
+                val rHigh = pcm[idx + 3].toInt()
+                val rSample = ((rHigh shl 8) or rLow).toShort()
+                val rampedR = (rSample * factor).toInt().coerceIn(-32768, 32767).toShort()
+                pcm[idx + 2] = (rampedR.toInt() and 0xFF).toByte()
+                pcm[idx + 3] = ((rampedR.toInt() shr 8) and 0xFF).toByte()
             }
             idx += frameSize
         }
@@ -984,7 +1064,7 @@ class LocalAudioPlayerManager(
                             durationMs = obj.optLong("durationMs", 0L),
                             uri = uri,
                             mimeType = obj.optString("mimeType", "audio/*"),
-                            sampleRate = obj.optInt("sampleRate", 44100),
+                            sampleRate = obj.optInt("sampleRate", 48000),
                             bitDepth = obj.optInt("bitDepth", 16),
                             channels = obj.optInt("channels", 2),
                             artworkBytes = null
