@@ -108,6 +108,25 @@ class UdpStreamClient(
         }
     }
 
+    fun updateFormat(format: AudioStreamFormat, headerMode: HeaderMode) {
+        currentFormat = format
+        val addr = targetAddress
+        val s = socket
+        if (isConnected.get() && s != null && !s.isClosed && addr != null) {
+            val header = C3Protocol.getInitialHeader(format, headerMode)
+            if (header != null && header.isNotEmpty()) {
+                try {
+                    val headerPacket = DatagramPacket(header, header.size, addr, targetPort)
+                    s.send(headerPacket)
+                    totalBytesWritten.addAndGet(header.size.toLong())
+                    Log.i(TAG, "Transmitted on-the-fly ${header.size}-byte format sync header to $addr:$targetPort (${format.displayName})")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed sending on-the-fly format header: ${e.message}")
+                }
+            }
+        }
+    }
+
     /**
      * Transmits an audio chunk over UDP.
      * Splits large buffer chunks into MTU-safe sub-packets if necessary.

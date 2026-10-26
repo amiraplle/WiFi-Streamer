@@ -48,6 +48,7 @@ import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Podcasts
 import androidx.compose.material.icons.outlined.Stop
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -105,6 +106,8 @@ fun PlayerScreen(
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
+    val savedFolder by viewModel.savedFolderName.collectAsState()
+    val isRescanning by viewModel.isRescanning.collectAsState()
 
     // SAF File Picker (Select audio files: OPUS, FLAC, WAV, MP3, M4A, OGG)
     val pickAudioLauncher = rememberLauncherForActivityResult(
@@ -751,39 +754,130 @@ fun PlayerScreen(
         }
 
         // =========================================================================
-        // 4. QUEUE HEADER & PLAYLIST SECTION
+        // 4. QUEUE HEADER & PLAYLIST SECTION (With Folder Sync & Rescan)
         // =========================================================================
         item {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 4.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text(
-                    text = "Playlist Queue (${uiState.playlist.size})",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-
-                if (uiState.playlist.isNotEmpty()) {
-                    Surface(
-                        color = Color.Transparent,
-                        modifier = Modifier.clickable { viewModel.clearQueue() }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.DeleteOutline,
-                                contentDescription = null,
-                                tint = TextSecondary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text("Clear", color = TextSecondary, fontSize = 11.sp)
+                        Text(
+                            text = "Playlist Queue (${uiState.playlist.size})",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+
+                        if (savedFolder != null) {
+                            Surface(
+                                color = Color(0xFF1E1E28),
+                                shape = RoundedCornerShape(6.dp),
+                                border = BorderStroke(1.dp, Color(0xFF2E2E3E))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.FolderOpen,
+                                        contentDescription = null,
+                                        tint = StreamEmerald,
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                    Text(
+                                        text = savedFolder ?: "",
+                                        color = StreamEmerald,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Manual Rescan Button (🔄)
+                        if (savedFolder != null) {
+                            Surface(
+                                color = Color(0xFF1A1A22),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, Color(0xFF2C2C3C)),
+                                modifier = Modifier
+                                    .clickable(enabled = !isRescanning) {
+                                        viewModel.rescanFolder { added, removed ->
+                                            if (added > 0 || removed > 0) {
+                                                Toast.makeText(context, "Synced: +$added new, -$removed removed", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                Toast.makeText(context, "Folder library is up to date", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                    .testTag("rescan_folder_button")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    if (isRescanning) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(12.dp),
+                                            color = StreamEmerald,
+                                            strokeWidth = 1.5.dp
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Sync,
+                                            contentDescription = "Rescan Folder",
+                                            tint = StreamEmerald,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = if (isRescanning) "Scanning…" else "Rescan",
+                                        color = StreamEmerald,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+
+                        if (uiState.playlist.isNotEmpty()) {
+                            Surface(
+                                color = Color.Transparent,
+                                modifier = Modifier.clickable { viewModel.clearQueue() }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.DeleteOutline,
+                                        contentDescription = null,
+                                        tint = TextSecondary,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Text("Clear", color = TextSecondary, fontSize = 11.sp)
+                                }
+                            }
                         }
                     }
                 }

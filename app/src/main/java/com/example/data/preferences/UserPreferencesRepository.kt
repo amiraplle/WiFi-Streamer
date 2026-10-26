@@ -38,6 +38,7 @@ data class UserPreferences(
     val eqBand3: Float = 0f,
     val eqBand4: Float = 0f,
     val softLimiterEnabled: Boolean = true,
+    val limiterTrimDb: Float = 0f,
     val bassBoostPercent: Int = 0,
     val trebleClarityPercent: Int = 0,
     val mutePhoneWhileStreaming: Boolean = false,
@@ -105,6 +106,7 @@ class UserPreferencesRepository(context: Context) {
             eqBand3 = prefs.getFloat("eq_band_3", 0f),
             eqBand4 = prefs.getFloat("eq_band_4", 0f),
             softLimiterEnabled = prefs.getBoolean("soft_limiter_enabled", true),
+            limiterTrimDb = prefs.getFloat("limiter_trim_db", 0f),
             bassBoostPercent = prefs.getInt("bass_boost_percent", 0),
             trebleClarityPercent = prefs.getInt("treble_clarity_percent", 0),
             mutePhoneWhileStreaming = prefs.getBoolean("mute_phone_while_streaming", false),
@@ -256,6 +258,12 @@ class UserPreferencesRepository(context: Context) {
     fun updateSoftLimiter(enabled: Boolean) {
         prefs.edit().putBoolean("soft_limiter_enabled", enabled).apply()
         _userPreferences.value = _userPreferences.value.copy(softLimiterEnabled = enabled)
+    }
+
+    fun updateLimiterTrim(trimDb: Float) {
+        val clamped = trimDb.coerceIn(-12f, 12f)
+        prefs.edit().putFloat("limiter_trim_db", clamped).apply()
+        _userPreferences.value = _userPreferences.value.copy(limiterTrimDb = clamped)
     }
 
     fun updateBassBoost(percent: Int) {

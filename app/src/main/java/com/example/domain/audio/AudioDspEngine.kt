@@ -31,7 +31,10 @@ class AudioDspEngine {
     var isEnabled: Boolean = false
 
     @Volatile
-    var isSoftLimiterEnabled: Boolean = true
+    var isSoftLimiterEnabled: Boolean = false
+
+    @Volatile
+    var limiterTrimDb: Float = 0f
 
     @Volatile
     var bassBoostPercent: Int = 0
@@ -193,15 +196,17 @@ class AudioDspEngine {
     ) {
         val applyEq = isEnabled
         val applyLimiter = isSoftLimiterEnabled
+        val currentTrim = limiterTrimDb
+        val trimGain = if (currentTrim != 0f) 10.0.pow(currentTrim.toDouble() / 20.0).toFloat() else 1.0f
 
-        if (!applyEq && !applyLimiter) return
+        if (!applyEq && !applyLimiter && currentTrim == 0f) return
 
         if (bitDepth == 16) {
-            process16Bit(buffer, length, channels, applyEq, applyLimiter)
+            process16Bit(buffer, length, channels, applyEq, applyLimiter, trimGain)
         } else if (bitDepth == 24) {
-            process24Bit(buffer, length, channels, applyEq, applyLimiter)
+            process24Bit(buffer, length, channels, applyEq, applyLimiter, trimGain)
         } else if (bitDepth == 32) {
-            process32Bit(buffer, length, channels, applyEq, applyLimiter)
+            process32Bit(buffer, length, channels, applyEq, applyLimiter, trimGain)
         }
     }
 
@@ -210,7 +215,8 @@ class AudioDspEngine {
         length: Int,
         channels: Int,
         applyEq: Boolean,
-        applyLimiter: Boolean
+        applyLimiter: Boolean,
+        trimGain: Float
     ) {
         var i = 0
         var channelIdx = 0
@@ -222,6 +228,10 @@ class AudioDspEngine {
             val b3 = buffer[i + 3].toInt()
             val rawSample = (b3 shl 24) or (b2 shl 16) or (b1 shl 8) or b0
             var sample = rawSample.toDouble()
+
+            if (trimGain != 1.0f) {
+                sample *= trimGain.toDouble()
+            }
 
             if (applyEq) {
                 val hist = if (channelIdx == 0 || channels == 1) leftHistory else rightHistory
@@ -265,7 +275,8 @@ class AudioDspEngine {
         length: Int,
         channels: Int,
         applyEq: Boolean,
-        applyLimiter: Boolean
+        applyLimiter: Boolean,
+        trimGain: Float
     ) {
         var i = 0
         var channelIdx = 0
@@ -274,6 +285,10 @@ class AudioDspEngine {
             val low = buffer[i].toInt() and 0xFF
             val high = buffer[i + 1].toInt()
             var sample = ((high shl 8) or low).toFloat()
+
+            if (trimGain != 1.0f) {
+                sample *= trimGain
+            }
 
             // Apply 5-Band Biquad EQ
             if (applyEq) {
@@ -324,7 +339,8 @@ class AudioDspEngine {
         length: Int,
         channels: Int,
         applyEq: Boolean,
-        applyLimiter: Boolean
+        applyLimiter: Boolean,
+        trimGain: Float
     ) {
         var i = 0
         var channelIdx = 0
@@ -338,6 +354,10 @@ class AudioDspEngine {
                 rawSample = rawSample or 0xFF000000.toInt()
             }
             var sample = rawSample.toFloat()
+
+            if (trimGain != 1.0f) {
+                sample *= trimGain
+            }
 
             if (applyEq) {
                 val hist = if (channelIdx == 0 || channels == 1) leftHistory else rightHistory

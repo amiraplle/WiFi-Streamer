@@ -1030,42 +1030,7 @@ fun HomeScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
 
-                // Hardware Protection: Peak Limiter
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = Color(0xFF1A1A22),
-                    border = BorderStroke(1.dp, if (prefs.softLimiterEnabled) StreamEmerald.copy(alpha = 0.35f) else Color(0xFF262630))
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Icon(
-                                imageVector = Icons.Outlined.Security,
-                                contentDescription = "Protection",
-                                tint = if (prefs.softLimiterEnabled) StreamEmerald else TextSecondary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = "Soft Peak Limiter (0 dBFS)",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = TextPrimary
-                            )
-                        }
-                        StudioSwitch(
-                            checked = prefs.softLimiterEnabled,
-                            onCheckedChange = { viewModel.setSoftLimiter(it) },
-                            modifier = Modifier.testTag("soft_limiter_switch")
-                        )
-                    }
-                }
 
                 if (prefs.dspEnabled) {
                     Spacer(modifier = Modifier.height(10.dp))

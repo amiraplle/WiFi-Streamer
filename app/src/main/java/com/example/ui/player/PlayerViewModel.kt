@@ -76,8 +76,15 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    val savedFolderName: StateFlow<String?> = playerManager.savedFolderName
+    val isRescanning: StateFlow<Boolean> = playerManager.isRescanning
+
     fun loadFolder(folderUri: Uri, onComplete: (Int) -> Unit) {
         playerManager.loadFromFolder(folderUri, onComplete)
+    }
+
+    fun rescanFolder(onComplete: (newCount: Int, removedCount: Int) -> Unit = { _, _ -> }) {
+        playerManager.rescanCurrentFolder(onComplete)
     }
 
     fun clearQueue() {

@@ -233,7 +233,7 @@ class StreamingService : Service() {
             }
         )
 
-        // Dynamically reflect changes made in Settings (Rate pacing, Wi-Fi QoS, Bit-Perfect, Dither, Keep-Alive)
+        // Dynamically reflect changes made in Settings (Rate pacing, Wi-Fi QoS, Bit-Perfect, Dither, Keep-Alive, Target Format)
         serviceScope.launch {
             AppContainer.getPreferences(this@StreamingService).userPreferences.collect { prefs ->
                 captureManager?.volumePercent = prefs.transmissionVolume
@@ -243,6 +243,15 @@ class StreamingService : Service() {
                 captureManager?.keepAliveSilence = prefs.keepAliveSilence
                 pacedTransmitter?.ratePacingEnabled = prefs.ratePacing
                 udpClient?.setQosEnabled(prefs.wifiQosEnabled)
+
+                // Propagate format changes (e.g. 16-bit to 24-bit) dynamically to transmitter and transport
+                val newFormat = prefs.audioFormat
+                pacedTransmitter?.updateFormat(newFormat)
+                udpClient?.updateFormat(newFormat, prefs.headerMode)
+                if (_telemetry.value.format != newFormat) {
+                    _telemetry.value = _telemetry.value.copy(format = newFormat)
+                    updateNotification()
+                }
             }
         }
 
@@ -739,6 +748,7 @@ class StreamingService : Service() {
         captureManager?.dspEngine?.apply {
             isEnabled = prefs.dspEnabled
             isSoftLimiterEnabled = prefs.softLimiterEnabled
+            limiterTrimDb = prefs.limiterTrimDb
             bassBoostPercent = prefs.bassBoostPercent
             trebleClarityPercent = prefs.trebleClarityPercent
             setAllBandGains(prefs.eqBandGains)

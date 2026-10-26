@@ -28,11 +28,14 @@ class PacedAudioTransmitter(
     private val isRunning = AtomicBoolean(false)
     private var transmitterThread: Thread? = null
 
-    // Standard 1024-byte packet size (256 stereo 16-bit frames = ~5.3ms @ 48kHz)
-    // Fits comfortably in a single UDP packet (MTU < 1400) without fragmentation
-    private val PACKET_SIZE = 1024
-    private val chunkBuffer = ByteArray(PACKET_SIZE)
-    private val silenceChunk = ByteArray(PACKET_SIZE)
+    // Frame-aligned packet sizes:
+    // 24-bit stereo (6 bytes/frame) -> 1152 bytes (192 frames)
+    // 16-bit stereo (4 bytes/frame) -> 1024 bytes (256 frames)
+    // 32-bit stereo (8 bytes/frame) -> 1024 bytes (128 frames)
+    // All sizes fit in a single unfragmented UDP datagram (MTU < 1400)
+    private val MAX_PACKET_CAPACITY = 1400
+    private val chunkBuffer = ByteArray(MAX_PACKET_CAPACITY)
+    private val silenceChunk = ByteArray(MAX_PACKET_CAPACITY)
 
     @Volatile
     var ratePacingEnabled: Boolean = true
@@ -40,15 +43,33 @@ class PacedAudioTransmitter(
     @Volatile
     var currentFormat: AudioStreamFormat = AudioStreamFormat.FORMAT_48K_16BIT_STEREO
 
-    // Target jitter buffer pre-roll in bytes (~150ms default = 28,800 bytes for 48kHz stereo)
+    // Target jitter buffer pre-roll in bytes (~150ms default)
     @Volatile
     var targetPreRollBytes: Int = 28800
+
+    fun getPacketSizeForFormat(format: AudioStreamFormat): Int {
+        val frameSize = format.frameSizeBytes.coerceAtLeast(1)
+        return when (format.bitDepth) {
+            24 -> 1152 // 192 frames * 6 bytes = 1152 bytes
+            32 -> 1024 // 128 frames * 8 bytes = 1024 bytes
+            else -> 1024 // 256 frames * 4 bytes = 1024 bytes
+        }
+    }
 
     fun setTargetLatencyPreset(preset: com.example.model.BufferLatencyPreset, format: AudioStreamFormat) {
         val bytesPerSec = format.sampleRate.toLong() * format.frameSizeBytes
         val calculated = ((bytesPerSec * preset.durationMs) / 1000).toInt()
-        targetPreRollBytes = calculated.coerceIn(PACKET_SIZE * 8, 64 * 1024)
+        val packetSize = getPacketSizeForFormat(format)
+        targetPreRollBytes = calculated.coerceIn(packetSize * 4, 64 * 1024)
         Log.i(TAG, "Configured target jitter buffer pre-roll: $targetPreRollBytes bytes (${preset.durationMs}ms)")
+    }
+
+    fun updateFormat(newFormat: AudioStreamFormat) {
+        currentFormat = newFormat
+        val packetSize = getPacketSizeForFormat(newFormat)
+        val bytesPerSec = (newFormat.sampleRate.toLong() * newFormat.frameSizeBytes).coerceAtLeast(1L)
+        targetPreRollBytes = ((bytesPerSec * 150) / 1000).toInt().coerceIn(packetSize * 4, 64 * 1024)
+        Log.i(TAG, "PacedAudioTransmitter format updated to ${newFormat.displayName} (PacketSize: ${packetSize}B)")
     }
 
     fun start(format: AudioStreamFormat) {
@@ -65,7 +86,8 @@ class PacedAudioTransmitter(
             start()
         }
 
-        Log.i(TAG, "PacedAudioTransmitter started for ${format.displayName} (Pacing: $ratePacingEnabled, PreRoll: ${targetPreRollBytes}B, Packet: ${PACKET_SIZE}B)")
+        val packetSize = getPacketSizeForFormat(format)
+        Log.i(TAG, "PacedAudioTransmitter started for ${format.displayName} (Pacing: $ratePacingEnabled, PreRoll: ${targetPreRollBytes}B, Packet: ${packetSize}B)")
     }
 
     fun stop() {
@@ -80,25 +102,25 @@ class PacedAudioTransmitter(
     }
 
     private fun transmissionLoop() {
-        val bytesPerSec = (currentFormat.sampleRate.toLong() * currentFormat.frameSizeBytes).coerceAtLeast(1L)
-        // Duration of one 1024-byte packet in nanoseconds (~5,333,333 ns at 48kHz stereo)
-        val packetDurationNs = (PACKET_SIZE.toLong() * 1_000_000_000L) / bytesPerSec
-
         var nextPacketTimeNs = System.nanoTime()
         var isBuffering = true
         var starvationStartTime = 0L
-
         var consecutiveUnderflows = 0
 
         while (isRunning.get()) {
+            val format = currentFormat
+            val packetSize = getPacketSizeForFormat(format)
+            val bytesPerSec = (format.sampleRate.toLong() * format.frameSizeBytes).coerceAtLeast(1L)
+            val packetDurationNs = (packetSize.toLong() * 1_000_000_000L) / bytesPerSec
+
             val available = ringBuffer.available
-            val minCushionBytes = targetPreRollBytes.coerceIn(PACKET_SIZE * 8, 64 * 1024)
+            val minCushionBytes = targetPreRollBytes.coerceIn(packetSize * 4, 64 * 1024)
 
             if (isBuffering) {
                 // Initial pre-roll or recovery buffer: wait until healthy cushion accumulates
                 if (available < minCushionBytes) {
                     // Send paced comfort silence to keep ESP32 connection alive and DAC clocked
-                    sendChunkToTransport(silenceChunk, 0, PACKET_SIZE)
+                    sendChunkToTransport(silenceChunk, 0, packetSize)
 
                     if (ratePacingEnabled) {
                         nextPacketTimeNs += packetDurationNs
@@ -130,9 +152,9 @@ class PacedAudioTransmitter(
             }
 
             // Active streaming mode:
-            if (available < PACKET_SIZE) {
+            if (available < packetSize) {
                 // Buffer momentarily low: send 1 comfort silence packet to keep DAC clocked
-                sendChunkToTransport(silenceChunk, 0, PACKET_SIZE)
+                sendChunkToTransport(silenceChunk, 0, packetSize)
                 consecutiveUnderflows++
                 if (starvationStartTime == 0L) {
                     starvationStartTime = System.currentTimeMillis()
@@ -159,14 +181,14 @@ class PacedAudioTransmitter(
             // Audio available: reset underflow counter immediately
             consecutiveUnderflows = 0
 
-            // Pull exactly one 1024-byte frame from the ring buffer
-            val readCount = ringBuffer.read(chunkBuffer, 0, PACKET_SIZE)
-            if (readCount < PACKET_SIZE) {
-                java.util.Arrays.fill(chunkBuffer, readCount, PACKET_SIZE, 0.toByte())
+            // Pull exactly one aligned frame packet from the ring buffer
+            val readCount = ringBuffer.read(chunkBuffer, 0, packetSize)
+            if (readCount < packetSize) {
+                java.util.Arrays.fill(chunkBuffer, readCount, packetSize, 0.toByte())
             }
 
-            // Transmit single unfragmented 1024-byte datagram to transport
-            val sendSuccess = sendChunkToTransport(chunkBuffer, 0, PACKET_SIZE)
+            // Transmit single unfragmented datagram to transport
+            val sendSuccess = sendChunkToTransport(chunkBuffer, 0, packetSize)
             if (!sendSuccess) {
                 LockSupport.parkNanos(2_000_000L) // 2ms backoff on network drop
             }

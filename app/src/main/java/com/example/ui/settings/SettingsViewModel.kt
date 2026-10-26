@@ -59,6 +59,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         prefsRepo.updateKeepAliveSilence(enabled)
     }
 
+    fun updateLimiterTrim(trimDb: Float) {
+        prefsRepo.updateLimiterTrim(trimDb)
+    }
+
     fun updateMutePhoneWhileStreaming(enabled: Boolean) {
         prefsRepo.updateMutePhoneWhileStreaming(enabled)
     }

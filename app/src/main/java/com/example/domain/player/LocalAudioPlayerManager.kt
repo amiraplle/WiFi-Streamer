@@ -52,6 +52,9 @@ class LocalAudioPlayerManager(
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
+    val savedFolderName = MutableStateFlow<String?>(null)
+    val isRescanning = MutableStateFlow(false)
+
     private var playbackJob: Job? = null
     private val isPaused = AtomicBoolean(false)
     private val isStopped = AtomicBoolean(true)
@@ -65,6 +68,9 @@ class LocalAudioPlayerManager(
 
     init {
         val initialPrefs = preferencesRepository.userPreferences.value
+        val diskPrefs = context.getSharedPreferences("c3_player_state", Context.MODE_PRIVATE)
+        savedFolderName.value = diskPrefs.getString("last_folder_name", null)
+
         _uiState.value = _uiState.value.copy(
             playlist = emptyList(),
             currentIndex = -1,
@@ -207,11 +213,6 @@ class LocalAudioPlayerManager(
         val list = _uiState.value.playlist
         if (list.isEmpty()) return
 
-        if (_uiState.value.playerState == PlayerState.PLAYING) {
-            val prefs = preferencesRepository.userPreferences.value
-            writeSoftFadeOut(prefs.sampleRate, prefs.bitDepth)
-        }
-
         val nextIndex = if (_uiState.value.isShuffle) {
             list.indices.filter { it != _uiState.value.currentIndex }.randomOrNull() ?: 0
         } else {
@@ -228,11 +229,6 @@ class LocalAudioPlayerManager(
     fun playPrevious() {
         val list = _uiState.value.playlist
         if (list.isEmpty()) return
-
-        if (_uiState.value.playerState == PlayerState.PLAYING) {
-            val prefs = preferencesRepository.userPreferences.value
-            writeSoftFadeOut(prefs.sampleRate, prefs.bitDepth)
-        }
 
         // If played more than 3 seconds, restart current track
         if (_uiState.value.positionMs > 3000L) {
@@ -330,6 +326,7 @@ class LocalAudioPlayerManager(
 
         isStopped.set(true)
         playbackJob?.cancel()
+        StreamingService.instance?.clearRingBuffer()
         isStopped.set(false)
         isPaused.set(false)
 
@@ -498,56 +495,68 @@ class LocalAudioPlayerManager(
                         val pcmBytes = ByteArray(bufferInfo.size)
                         outputBuffer.get(pcmBytes)
 
-                        // Format & resample to user's Settings choice
+                        // Format & resample to user's Settings choice (dynamic check allows on-the-fly 16->24 bit switching)
+                        val activePrefs = preferencesRepository.userPreferences.value
+                        val activeTargetSampleRate = activePrefs.sampleRate
+                        val activeTargetBitDepth = activePrefs.bitDepth
+
                         val formattedPcm = formatPcmStream(
                             inputPcm = pcmBytes,
                             sourceSampleRate = sourceSampleRate,
                             sourceChannels = sourceChannels,
-                            targetSampleRate = targetSampleRate,
-                            targetBitDepth = targetBitDepth
+                            targetSampleRate = activeTargetSampleRate,
+                            targetBitDepth = activeTargetBitDepth
                         )
 
                         if (formattedPcm.isNotEmpty()) {
-                            // Apply 15ms anti-pop soft-ramp on track start or seek resume
+                            // Apply 25ms anti-pop soft-ramp on track start or seek resume
                             if (isStartingRamp) {
-                                applySoftRamp(formattedPcm, targetSampleRate, targetBitDepth, isFadeOut = false)
+                                applySoftRamp(formattedPcm, activeTargetSampleRate, activeTargetBitDepth, isFadeOut = false)
                                 isStartingRamp = false
                             }
 
                             // Capture last stereo sample in chunk for seamless soft fade-out
-                            if (targetBitDepth == 32 && formattedPcm.size >= 8) {
+                            if (activeTargetBitDepth == 32 && formattedPcm.size >= 8) {
                                 val offset = formattedPcm.size - 8
                                 val l0 = formattedPcm[offset].toInt() and 0xFF
                                 val l1 = formattedPcm[offset + 1].toInt() and 0xFF
                                 val l2 = formattedPcm[offset + 2].toInt() and 0xFF
-                                val l3 = formattedPcm[offset + 3].toInt()
+                                val l3 = formattedPcm[offset + 3].toInt() and 0xFF
                                 lastSampleL = (l3 shl 24) or (l2 shl 16) or (l1 shl 8) or l0
 
                                 val r0 = formattedPcm[offset + 4].toInt() and 0xFF
                                 val r1 = formattedPcm[offset + 5].toInt() and 0xFF
                                 val r2 = formattedPcm[offset + 6].toInt() and 0xFF
-                                val r3 = formattedPcm[offset + 7].toInt()
+                                val r3 = formattedPcm[offset + 7].toInt() and 0xFF
                                 lastSampleR = (r3 shl 24) or (r2 shl 16) or (r1 shl 8) or r0
-                            } else if (targetBitDepth == 24 && formattedPcm.size >= 6) {
+                            } else if (activeTargetBitDepth == 24 && formattedPcm.size >= 6) {
                                 val offset = formattedPcm.size - 6
                                 val l0 = formattedPcm[offset].toInt() and 0xFF
                                 val l1 = formattedPcm[offset + 1].toInt() and 0xFF
-                                val l2 = formattedPcm[offset + 2].toInt()
-                                lastSampleL = (l2 shl 16) or (l1 shl 8) or l0
+                                val l2 = formattedPcm[offset + 2].toInt() and 0xFF
+                                var sL = (l2 shl 16) or (l1 shl 8) or l0
+                                if ((sL and 0x800000) != 0) sL = sL or 0xFF000000.toInt()
+                                lastSampleL = sL
 
                                 val r0 = formattedPcm[offset + 3].toInt() and 0xFF
                                 val r1 = formattedPcm[offset + 4].toInt() and 0xFF
-                                val r2 = formattedPcm[offset + 5].toInt()
-                                lastSampleR = (r2 shl 16) or (r1 shl 8) or r0
-                            } else if (targetBitDepth == 16 && formattedPcm.size >= 4) {
+                                val r2 = formattedPcm[offset + 5].toInt() and 0xFF
+                                var sR = (r2 shl 16) or (r1 shl 8) or r0
+                                if ((sR and 0x800000) != 0) sR = sR or 0xFF000000.toInt()
+                                lastSampleR = sR
+                            } else if (activeTargetBitDepth == 16 && formattedPcm.size >= 4) {
                                 val offset = formattedPcm.size - 4
                                 val lLow = formattedPcm[offset].toInt() and 0xFF
-                                val lHigh = formattedPcm[offset + 1].toInt()
-                                lastSampleL = ((lHigh shl 8) or lLow).toShort().toInt()
+                                val lHigh = formattedPcm[offset + 1].toInt() and 0xFF
+                                var sL = (lHigh shl 8) or lLow
+                                if ((sL and 0x8000) != 0) sL = sL or 0xFFFF0000.toInt()
+                                lastSampleL = sL
 
                                 val rLow = formattedPcm[offset + 2].toInt() and 0xFF
-                                val rHigh = formattedPcm[offset + 3].toInt()
-                                lastSampleR = ((rHigh shl 8) or rLow).toShort().toInt()
+                                val rHigh = formattedPcm[offset + 3].toInt() and 0xFF
+                                var sR = (rHigh shl 8) or rLow
+                                if ((sR and 0x8000) != 0) sR = sR or 0xFFFF0000.toInt()
+                                lastSampleR = sR
                             }
 
                             // Backpressure check: wait until ring buffer has enough free space to avoid dropping frames
@@ -709,7 +718,8 @@ class LocalAudioPlayerManager(
 
     /**
      * Scans an entire folder picked by user via Storage Access Framework using DocumentsContract.
-     * Recursively traverses subfolders up to 3 levels deep and safely extracts audio files.
+     * Recursively traverses subfolders up to 4 levels deep and safely extracts audio files.
+     * Persists the folder URI and takePersistableUriPermission so it's never forgotten.
      */
     fun loadFromFolder(folderUri: Uri, onComplete: (Int) -> Unit) {
         playerScope.launch(Dispatchers.IO) {
@@ -722,7 +732,38 @@ class LocalAudioPlayerManager(
                         folderUri,
                         Intent.FLAG_GRANT_READ_URI_PERMISSION
                     )
-                } catch (_: Throwable) {}
+                    Log.i(TAG, "Acquired persistable URI permission for folder: $folderUri")
+                } catch (pe: Throwable) {
+                    Log.w(TAG, "Notice taking persistable URI permission: ${pe.message}")
+                }
+
+                // Extract folder display name
+                val folderName = try {
+                    var n: String? = null
+                    context.contentResolver.query(folderUri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { cursor ->
+                        if (cursor.moveToFirst()) {
+                            n = cursor.getString(0)
+                        }
+                    }
+                    n ?: if (DocumentsContract.isDocumentUri(context, folderUri)) {
+                        DocumentsContract.getDocumentId(folderUri).substringAfterLast(":").substringAfterLast("/")
+                    } else {
+                        DocumentsContract.getTreeDocumentId(folderUri).substringAfterLast(":").substringAfterLast("/")
+                    }
+                } catch (_: Throwable) {
+                    "Music Folder"
+                }
+
+                // Persist folder URI and name immediately in SharedPreferences
+                val prefs = context.getSharedPreferences("c3_player_state", Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putString("last_folder_uri", folderUri.toString())
+                    .putString("last_folder_name", folderName)
+                    .apply()
+
+                withContext(Dispatchers.Main) {
+                    savedFolderName.value = folderName
+                }
 
                 val rootDocId = try {
                     if (DocumentsContract.isDocumentUri(context, folderUri)) {
@@ -739,14 +780,23 @@ class LocalAudioPlayerManager(
                 }
 
                 if (rootDocId != null) {
-                    scanDirectory(folderUri, rootDocId, discovered, audioExtensions, depth = 0, maxDepth = 3)
+                    scanDirectory(folderUri, rootDocId, discovered, audioExtensions, depth = 0, maxDepth = 4)
                 }
             } catch (e: Throwable) {
                 Log.e(TAG, "Error scanning folder: ${e.message}", e)
             }
 
             if (discovered.isNotEmpty()) {
-                addTracks(discovered, playImmediately = false)
+                val currentTrack = _uiState.value.currentTrack ?: discovered.firstOrNull()
+                val currentIdx = if (_uiState.value.currentIndex < 0) 0 else _uiState.value.currentIndex
+                withContext(Dispatchers.Main) {
+                    _uiState.value = _uiState.value.copy(
+                        playlist = discovered,
+                        currentTrack = currentTrack,
+                        currentIndex = currentIdx
+                    )
+                }
+                savePlaylistToDisk(discovered, currentIdx, folderUri)
             }
 
             // Always dispatch UI callback / toast on Main thread to prevent background thread crash
@@ -755,6 +805,102 @@ class LocalAudioPlayerManager(
                     onComplete(discovered.size)
                 } catch (e: Throwable) {
                     Log.e(TAG, "onComplete callback error: ${e.message}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Rock-solid folder rescan:
+     * Discovers newly added audio files and removes deleted ones without stopping or interrupting active playback.
+     */
+    fun rescanCurrentFolder(onResult: (newCount: Int, removedCount: Int) -> Unit = { _, _ -> }) {
+        if (isRescanning.value) return
+        val diskPrefs = context.getSharedPreferences("c3_player_state", Context.MODE_PRIVATE)
+        val uriStr = diskPrefs.getString("last_folder_uri", null)
+        if (uriStr.isNullOrBlank()) {
+            playerScope.launch(Dispatchers.Main) {
+                onResult(0, 0)
+            }
+            return
+        }
+        val folderUri = Uri.parse(uriStr)
+
+        isRescanning.value = true
+        playerScope.launch(Dispatchers.IO) {
+            var newCount = 0
+            var removedCount = 0
+
+            try {
+                // Ensure permission
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        folderUri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: Throwable) {}
+
+                val audioExtensions = setOf("mp3", "flac", "wav", "m4a", "ogg", "aac", "opus")
+                val discovered = mutableListOf<AudioTrack>()
+
+                val rootDocId = try {
+                    if (DocumentsContract.isDocumentUri(context, folderUri)) {
+                        DocumentsContract.getDocumentId(folderUri)
+                    } else {
+                        DocumentsContract.getTreeDocumentId(folderUri)
+                    }
+                } catch (_: Throwable) {
+                    try {
+                        DocumentsContract.getTreeDocumentId(folderUri)
+                    } catch (_: Throwable) {
+                        null
+                    }
+                }
+
+                if (rootDocId != null) {
+                    scanDirectory(folderUri, rootDocId, discovered, audioExtensions, depth = 0, maxDepth = 4)
+                }
+
+                val currentPlaylist = _uiState.value.playlist
+                val currentUris = currentPlaylist.map { it.uri.toString() }.toSet()
+                val discoveredUris = discovered.map { it.uri.toString() }.toSet()
+
+                val newlyFound = discovered.filter { it.uri.toString() !in currentUris }
+                val removedUrisSet = currentUris.filter { it !in discoveredUris }.toSet()
+
+                newCount = newlyFound.size
+                removedCount = removedUrisSet.size
+
+                if (newlyFound.isNotEmpty() || removedUrisSet.isNotEmpty()) {
+                    val updatedList = currentPlaylist.filter { it.uri.toString() !in removedUrisSet }.toMutableList()
+                    updatedList.addAll(newlyFound)
+
+                    val currentTrack = _uiState.value.currentTrack
+                    var targetIdx = _uiState.value.currentIndex
+                    if (currentTrack != null) {
+                        val foundIdx = updatedList.indexOfFirst { it.uri.toString() == currentTrack.uri.toString() }
+                        targetIdx = if (foundIdx >= 0) foundIdx else targetIdx.coerceIn(0, (updatedList.size - 1).coerceAtLeast(0))
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        _uiState.value = _uiState.value.copy(
+                            playlist = updatedList,
+                            currentIndex = targetIdx
+                        )
+                    }
+                    savePlaylistToDisk(updatedList, targetIdx, folderUri)
+                    Log.i(TAG, "Rescan completed: +$newCount added, -$removedCount removed. Total: ${updatedList.size}")
+                } else {
+                    Log.i(TAG, "Rescan completed: No file changes detected in folder")
+                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "Error during rescan: ${e.message}", e)
+            } finally {
+                withContext(Dispatchers.Main) {
+                    isRescanning.value = false
+                    try {
+                        onResult(newCount, removedCount)
+                    } catch (_: Throwable) {}
                 }
             }
         }
@@ -915,7 +1061,7 @@ class LocalAudioPlayerManager(
     private fun applySoftRamp(pcm: ByteArray, sampleRate: Int, bitDepth: Int, isFadeOut: Boolean = false) {
         val bytesPerSample = bitDepth / 8
         val frameSize = bytesPerSample * 2 // stereo
-        val rampFrames = (sampleRate * 15) / 1000 // 15ms
+        val rampFrames = (sampleRate * 25) / 1000 // 25ms smooth ramp
         val framesToProcess = minOf(rampFrames, pcm.size / frameSize)
         if (framesToProcess <= 0) return
 
@@ -931,9 +1077,9 @@ class LocalAudioPlayerManager(
                 val l0 = pcm[idx].toInt() and 0xFF
                 val l1 = pcm[idx + 1].toInt() and 0xFF
                 val l2 = pcm[idx + 2].toInt() and 0xFF
-                val l3 = pcm[idx + 3].toInt()
-                val lSample = (l3 shl 24) or (l2 shl 16) or (l1 shl 8) or l0
-                val rampedL = (lSample.toLong() * factor).toLong().coerceIn(-2147483648L, 2147483647L).toInt()
+                val l3 = pcm[idx + 3].toInt() and 0xFF
+                val sampleL = ((l3 shl 24) or (l2 shl 16) or (l1 shl 8) or l0).toDouble()
+                val rampedL = (sampleL * factor).toLong().coerceIn(-2147483648L, 2147483647L).toInt()
                 pcm[idx] = (rampedL and 0xFF).toByte()
                 pcm[idx + 1] = ((rampedL shr 8) and 0xFF).toByte()
                 pcm[idx + 2] = ((rampedL shr 16) and 0xFF).toByte()
@@ -942,9 +1088,9 @@ class LocalAudioPlayerManager(
                 val r0 = pcm[idx + 4].toInt() and 0xFF
                 val r1 = pcm[idx + 5].toInt() and 0xFF
                 val r2 = pcm[idx + 6].toInt() and 0xFF
-                val r3 = pcm[idx + 7].toInt()
-                val rSample = (r3 shl 24) or (r2 shl 16) or (r1 shl 8) or r0
-                val rampedR = (rSample.toLong() * factor).toLong().coerceIn(-2147483648L, 2147483647L).toInt()
+                val r3 = pcm[idx + 7].toInt() and 0xFF
+                val sampleR = ((r3 shl 24) or (r2 shl 16) or (r1 shl 8) or r0).toDouble()
+                val rampedR = (sampleR * factor).toLong().coerceIn(-2147483648L, 2147483647L).toInt()
                 pcm[idx + 4] = (rampedR and 0xFF).toByte()
                 pcm[idx + 5] = ((rampedR shr 8) and 0xFF).toByte()
                 pcm[idx + 6] = ((rampedR shr 16) and 0xFF).toByte()
@@ -952,35 +1098,39 @@ class LocalAudioPlayerManager(
             } else if (bitDepth == 24) {
                 val l0 = pcm[idx].toInt() and 0xFF
                 val l1 = pcm[idx + 1].toInt() and 0xFF
-                val l2 = pcm[idx + 2].toInt()
-                val lSample = (l2 shl 16) or (l1 shl 8) or l0
-                val rampedL = (lSample * factor).toInt().coerceIn(-8388608, 8388607)
+                val l2 = pcm[idx + 2].toInt() and 0xFF
+                var sampleL = (l2 shl 16) or (l1 shl 8) or l0
+                if ((sampleL and 0x800000) != 0) sampleL = sampleL or 0xFF000000.toInt()
+                val rampedL = (sampleL.toFloat() * factor).toInt().coerceIn(-8388608, 8388607)
                 pcm[idx] = (rampedL and 0xFF).toByte()
                 pcm[idx + 1] = ((rampedL shr 8) and 0xFF).toByte()
                 pcm[idx + 2] = ((rampedL shr 16) and 0xFF).toByte()
 
                 val r0 = pcm[idx + 3].toInt() and 0xFF
                 val r1 = pcm[idx + 4].toInt() and 0xFF
-                val r2 = pcm[idx + 5].toInt()
-                val rSample = (r2 shl 16) or (r1 shl 8) or r0
-                val rampedR = (rSample * factor).toInt().coerceIn(-8388608, 8388607)
+                val r2 = pcm[idx + 5].toInt() and 0xFF
+                var sampleR = (r2 shl 16) or (r1 shl 8) or r0
+                if ((sampleR and 0x800000) != 0) sampleR = sampleR or 0xFF000000.toInt()
+                val rampedR = (sampleR.toFloat() * factor).toInt().coerceIn(-8388608, 8388607)
                 pcm[idx + 3] = (rampedR and 0xFF).toByte()
                 pcm[idx + 4] = ((rampedR shr 8) and 0xFF).toByte()
                 pcm[idx + 5] = ((rampedR shr 16) and 0xFF).toByte()
             } else {
-                val lLow = pcm[idx].toInt() and 0xFF
-                val lHigh = pcm[idx + 1].toInt()
-                val lSample = ((lHigh shl 8) or lLow).toShort()
-                val rampedL = (lSample * factor).toInt().coerceIn(-32768, 32767).toShort()
-                pcm[idx] = (rampedL.toInt() and 0xFF).toByte()
-                pcm[idx + 1] = ((rampedL.toInt() shr 8) and 0xFF).toByte()
+                val l0 = pcm[idx].toInt() and 0xFF
+                val l1 = pcm[idx + 1].toInt() and 0xFF
+                var sampleL = (l1 shl 8) or l0
+                if ((sampleL and 0x8000) != 0) sampleL = sampleL or 0xFFFF0000.toInt()
+                val rampedL = (sampleL.toFloat() * factor).toInt().coerceIn(-32768, 32767)
+                pcm[idx] = (rampedL and 0xFF).toByte()
+                pcm[idx + 1] = ((rampedL shr 8) and 0xFF).toByte()
 
-                val rLow = pcm[idx + 2].toInt() and 0xFF
-                val rHigh = pcm[idx + 3].toInt()
-                val rSample = ((rHigh shl 8) or rLow).toShort()
-                val rampedR = (rSample * factor).toInt().coerceIn(-32768, 32767).toShort()
-                pcm[idx + 2] = (rampedR.toInt() and 0xFF).toByte()
-                pcm[idx + 3] = ((rampedR.toInt() shr 8) and 0xFF).toByte()
+                val r0 = pcm[idx + 2].toInt() and 0xFF
+                val r1 = pcm[idx + 3].toInt() and 0xFF
+                var sampleR = (r1 shl 8) or r0
+                if ((sampleR and 0x8000) != 0) sampleR = sampleR or 0xFFFF0000.toInt()
+                val rampedR = (sampleR.toFloat() * factor).toInt().coerceIn(-32768, 32767)
+                pcm[idx + 2] = (rampedR and 0xFF).toByte()
+                pcm[idx + 3] = ((rampedR shr 8) and 0xFF).toByte()
             }
             idx += frameSize
         }
@@ -1105,6 +1255,19 @@ class LocalAudioPlayerManager(
                                 }
                             }
                         }
+                    }
+                }
+
+                // After restoring, check if a folder was saved and silently sync in background
+                val diskPrefs = context.getSharedPreferences("c3_player_state", Context.MODE_PRIVATE)
+                val folderName = diskPrefs.getString("last_folder_name", null)
+                val folderUriStr = diskPrefs.getString("last_folder_uri", null)
+                withContext(Dispatchers.Main) {
+                    if (folderName != null) savedFolderName.value = folderName
+                }
+                if (!folderUriStr.isNullOrBlank()) {
+                    rescanCurrentFolder { newCount, removedCount ->
+                        Log.i(TAG, "Startup auto-sync finished: +$newCount new, -$removedCount removed")
                     }
                 }
             } catch (e: Exception) {

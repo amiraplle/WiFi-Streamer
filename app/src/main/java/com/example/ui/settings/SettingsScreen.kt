@@ -536,6 +536,76 @@ fun SettingsScreen(
                         modifier = Modifier.testTag("keep_alive_carrier_switch")
                     )
                 }
+
+                HorizontalDivider(color = Color(0xFF22222E))
+
+                // 4. Preamp / Limiter Headroom Trim (dB)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            SettingItemHeader(
+                                icon = Icons.Outlined.Tune,
+                                label = "Preamp / Limiter Trim"
+                            )
+                            Text(
+                                text = "Adjust digital headroom & gain trim before transmission (default 0.0 dB)",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                color = Color(0xFF8E8E98),
+                                modifier = Modifier.padding(start = 25.dp, top = 2.dp)
+                            )
+                        }
+
+                        Surface(
+                            color = if (prefs.limiterTrimDb == 0f) Color(0xFF1E1E28) else StreamEmerald.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, if (prefs.limiterTrimDb == 0f) Color(0xFF2C2C3C) else StreamEmerald.copy(alpha = 0.5f)),
+                            modifier = Modifier.clickable { viewModel.updateLimiterTrim(0f) }
+                        ) {
+                            Text(
+                                text = if (prefs.limiterTrimDb > 0f) "+${String.format("%.1f", prefs.limiterTrimDb)} dB"
+                                       else if (prefs.limiterTrimDb < 0f) "${String.format("%.1f", prefs.limiterTrimDb)} dB"
+                                       else "0.0 dB",
+                                color = if (prefs.limiterTrimDb == 0f) TextPrimary else StreamEmerald,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 25.dp, end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("-6 dB", fontSize = 10.sp, color = TextSecondary)
+                        androidx.compose.material3.Slider(
+                            value = prefs.limiterTrimDb,
+                            onValueChange = { viewModel.updateLimiterTrim(it) },
+                            valueRange = -6f..6f,
+                            steps = 23,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("limiter_trim_slider"),
+                            colors = androidx.compose.material3.SliderDefaults.colors(
+                                thumbColor = StreamEmerald,
+                                activeTrackColor = StreamEmerald,
+                                inactiveTrackColor = Color(0xFF262634)
+                            )
+                        )
+                        Text("+6 dB", fontSize = 10.sp, color = TextSecondary)
+                    }
+                }
             }
         }
 
