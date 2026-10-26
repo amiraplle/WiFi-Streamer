@@ -41,6 +41,13 @@ data class UserPreferences(
     val limiterTrimDb: Float = 0f,
     val bassBoostPercent: Int = 0,
     val trebleClarityPercent: Int = 0,
+    val airBandEnabled: Boolean = false,
+    val airBandGainDb: Float = 0f,
+    val bassPunchEnabled: Boolean = false,
+    val bassPunchIntensity: Int = 50,
+    val subBassCutEnabled: Boolean = false,
+    val stereoWidenerEnabled: Boolean = false,
+    val stereoWidthPercent: Int = 125,
     val mutePhoneWhileStreaming: Boolean = false,
     val wifiQosEnabled: Boolean = true
 ) {
@@ -109,6 +116,13 @@ class UserPreferencesRepository(context: Context) {
             limiterTrimDb = prefs.getFloat("limiter_trim_db", 0f),
             bassBoostPercent = prefs.getInt("bass_boost_percent", 0),
             trebleClarityPercent = prefs.getInt("treble_clarity_percent", 0),
+            airBandEnabled = prefs.getBoolean("air_band_enabled", false),
+            airBandGainDb = prefs.getFloat("air_band_gain_db", 0f),
+            bassPunchEnabled = prefs.getBoolean("bass_punch_enabled", false),
+            bassPunchIntensity = prefs.getInt("bass_punch_intensity", 50),
+            subBassCutEnabled = prefs.getBoolean("sub_bass_cut_enabled", false),
+            stereoWidenerEnabled = prefs.getBoolean("stereo_widener_enabled", false),
+            stereoWidthPercent = prefs.getInt("stereo_width_percent", 125),
             mutePhoneWhileStreaming = prefs.getBoolean("mute_phone_while_streaming", false),
             wifiQosEnabled = prefs.getBoolean("wifi_qos_enabled", true)
         )
@@ -281,5 +295,43 @@ class UserPreferencesRepository(context: Context) {
     fun updateMutePhoneWhileStreaming(enabled: Boolean) {
         prefs.edit().putBoolean("mute_phone_while_streaming", enabled).apply()
         _userPreferences.value = _userPreferences.value.copy(mutePhoneWhileStreaming = enabled)
+    }
+
+    fun updateAirBandEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("air_band_enabled", enabled).apply()
+        _userPreferences.value = _userPreferences.value.copy(airBandEnabled = enabled)
+    }
+
+    fun updateAirBandGain(gainDb: Float) {
+        val clamped = gainDb.coerceIn(0f, 6f)
+        prefs.edit().putFloat("air_band_gain_db", clamped).apply()
+        _userPreferences.value = _userPreferences.value.copy(airBandGainDb = clamped)
+    }
+
+    fun updateBassPunchEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("bass_punch_enabled", enabled).apply()
+        _userPreferences.value = _userPreferences.value.copy(bassPunchEnabled = enabled)
+    }
+
+    fun updateBassPunchIntensity(intensity: Int) {
+        val clamped = intensity.coerceIn(0, 100)
+        prefs.edit().putInt("bass_punch_intensity", clamped).apply()
+        _userPreferences.value = _userPreferences.value.copy(bassPunchIntensity = clamped)
+    }
+
+    fun updateSubBassCut(enabled: Boolean) {
+        prefs.edit().putBoolean("sub_bass_cut_enabled", enabled).apply()
+        _userPreferences.value = _userPreferences.value.copy(subBassCutEnabled = enabled)
+    }
+
+    fun updateStereoWidener(enabled: Boolean) {
+        prefs.edit().putBoolean("stereo_widener_enabled", enabled).apply()
+        _userPreferences.value = _userPreferences.value.copy(stereoWidenerEnabled = enabled)
+    }
+
+    fun updateStereoWidth(widthPercent: Int) {
+        val clamped = widthPercent.coerceIn(100, 150)
+        prefs.edit().putInt("stereo_width_percent", clamped).apply()
+        _userPreferences.value = _userPreferences.value.copy(stereoWidthPercent = clamped)
     }
 }

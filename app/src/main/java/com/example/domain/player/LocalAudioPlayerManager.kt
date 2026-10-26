@@ -16,6 +16,7 @@ import android.provider.OpenableColumns
 import android.util.Log
 import kotlinx.coroutines.withContext
 import com.example.data.preferences.UserPreferencesRepository
+import com.example.domain.audio.AudioDspEngine
 import com.example.model.AudioTrack
 import com.example.model.PlayerState
 import com.example.model.PlayerUiState
@@ -66,6 +67,8 @@ class LocalAudioPlayerManager(
     @Volatile
     private var lastSampleR: Int = 0
 
+    private val dspEngine = AudioDspEngine()
+
     init {
         val initialPrefs = preferencesRepository.userPreferences.value
         val diskPrefs = context.getSharedPreferences("c3_player_state", Context.MODE_PRIVATE)
@@ -78,12 +81,28 @@ class LocalAudioPlayerManager(
             outputFormatInfo = "${initialPrefs.bitDepth}-bit • ${initialPrefs.sampleRate / 1000.0} kHz"
         )
 
-        // Observe global preferences to update the active output target format badge dynamically
+        // Observe global preferences to update the active output target format badge and DSP engine dynamically
         playerScope.launch {
             preferencesRepository.userPreferences.collect { prefs ->
                 _uiState.value = _uiState.value.copy(
                     outputFormatInfo = "${prefs.bitDepth}-bit • ${prefs.sampleRate / 1000.0} kHz"
                 )
+                dspEngine.apply {
+                    setSampleRate(prefs.sampleRate)
+                    isEnabled = prefs.dspEnabled
+                    isSoftLimiterEnabled = prefs.softLimiterEnabled
+                    limiterTrimDb = prefs.limiterTrimDb
+                    bassBoostPercent = prefs.bassBoostPercent
+                    trebleClarityPercent = prefs.trebleClarityPercent
+                    setAllBandGains(prefs.eqBandGains)
+                    airBandEnabled = prefs.airBandEnabled
+                    airBandGainDb = prefs.airBandGainDb
+                    bassPunchEnabled = prefs.bassPunchEnabled
+                    bassPunchIntensity = prefs.bassPunchIntensity
+                    subBassCutEnabled = prefs.subBassCutEnabled
+                    stereoWidenerEnabled = prefs.stereoWidenerEnabled
+                    stereoWidthPercent = prefs.stereoWidthPercent
+                }
             }
         }
 
@@ -509,6 +528,16 @@ class LocalAudioPlayerManager(
                         )
 
                         if (formattedPcm.isNotEmpty()) {
+                            // Apply real-time audiophile DSP processing (unless bit-perfect direct mode is active)
+                            if (!activePrefs.bitPerfectMode) {
+                                dspEngine.process(
+                                    buffer = formattedPcm,
+                                    length = formattedPcm.size,
+                                    bitDepth = activeTargetBitDepth,
+                                    channels = 2
+                                )
+                            }
+
                             // Apply 25ms anti-pop soft-ramp on track start or seek resume
                             if (isStartingRamp) {
                                 applySoftRamp(formattedPcm, activeTargetSampleRate, activeTargetBitDepth, isFadeOut = false)

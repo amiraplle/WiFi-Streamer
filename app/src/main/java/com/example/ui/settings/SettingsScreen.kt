@@ -36,6 +36,10 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Podcasts
 import androidx.compose.material.icons.outlined.Router
+import androidx.compose.material.icons.outlined.Compress
+import androidx.compose.material.icons.outlined.Equalizer
+import androidx.compose.material.icons.outlined.SurroundSound
+import androidx.compose.material.icons.outlined.Waves
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.Tune
@@ -44,6 +48,11 @@ import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import com.example.domain.audio.AudioDspEngine
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -537,9 +546,88 @@ fun SettingsScreen(
                     )
                 }
 
+            }
+        }
+
+        // =========================================================================
+        // DSP & AUDIO PROCESSING (Controllable Audiophile Suite)
+        // =========================================================================
+        SettingsHeader(title = "DSP & AUDIO PROCESSING")
+
+        StudioCard(
+            modifier = Modifier.fillMaxWidth().testTag("dsp_settings_card")
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // 1. Master DSP Engine Switch
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 12.dp)
+                    ) {
+                        SettingItemHeader(
+                            icon = Icons.Outlined.Equalizer,
+                            label = "Master DSP Engine"
+                        )
+                        Text(
+                            text = "Enables real-time 64-bit biquad filtering, EQ, and sound enhancement modules",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 11.sp,
+                            color = Color(0xFF8E8E98),
+                            lineHeight = 14.sp,
+                            modifier = Modifier.padding(start = 25.dp, top = 2.dp)
+                        )
+                    }
+                    StudioSwitch(
+                        checked = prefs.dspEnabled,
+                        onCheckedChange = { viewModel.updateDspEnabled(it) },
+                        modifier = Modifier.testTag("settings_dsp_master_switch")
+                    )
+                }
+
                 HorizontalDivider(color = Color(0xFF22222E))
 
-                // 4. Preamp / Limiter Headroom Trim (dB)
+                // 2. Soft-Knee Peak Limiter (-1.36 dBFS Anti-Clipping)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 12.dp)
+                    ) {
+                        SettingItemHeader(
+                            icon = Icons.Outlined.Compress,
+                            label = "Soft-Knee Peak Limiter"
+                        )
+                        Text(
+                            text = "Asymptotic saturation curve at -1.36 dBFS to prevent DAC rail clipping and crackling",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 11.sp,
+                            color = Color(0xFF8E8E98),
+                            lineHeight = 14.sp,
+                            modifier = Modifier.padding(start = 25.dp, top = 2.dp)
+                        )
+                    }
+                    StudioSwitch(
+                        checked = prefs.softLimiterEnabled,
+                        onCheckedChange = { viewModel.updateSoftLimiter(it) },
+                        modifier = Modifier.testTag("settings_soft_limiter_switch")
+                    )
+                }
+
+                HorizontalDivider(color = Color(0xFF22222E))
+
+                // 3. Preamp / Limiter Trim Slider
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -589,7 +677,7 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text("-6 dB", fontSize = 10.sp, color = TextSecondary)
-                        androidx.compose.material3.Slider(
+                        Slider(
                             value = prefs.limiterTrimDb,
                             onValueChange = { viewModel.updateLimiterTrim(it) },
                             valueRange = -6f..6f,
@@ -597,13 +685,326 @@ fun SettingsScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .testTag("limiter_trim_slider"),
-                            colors = androidx.compose.material3.SliderDefaults.colors(
+                            colors = SliderDefaults.colors(
                                 thumbColor = StreamEmerald,
                                 activeTrackColor = StreamEmerald,
                                 inactiveTrackColor = Color(0xFF262634)
                             )
                         )
                         Text("+6 dB", fontSize = 10.sp, color = TextSecondary)
+                    }
+                }
+
+                HorizontalDivider(color = Color(0xFF22222E))
+
+                // 4. Air Band High-Shelf (14 kHz)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            SettingItemHeader(
+                                icon = Icons.Outlined.Waves,
+                                label = "Air Band High-Shelf (14 kHz)"
+                            )
+                            Text(
+                                text = "Silky high-end sheen & open room ambiance without sibilance harshness",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                color = Color(0xFF8E8E98),
+                                modifier = Modifier.padding(start = 25.dp, top = 2.dp)
+                            )
+                        }
+                        StudioSwitch(
+                            checked = prefs.airBandEnabled,
+                            onCheckedChange = { viewModel.updateAirBandEnabled(it) },
+                            modifier = Modifier.testTag("air_band_switch")
+                        )
+                    }
+
+                    if (prefs.airBandEnabled) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 25.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text("Gain", fontSize = 10.sp, color = TextSecondary)
+                            Slider(
+                                value = prefs.airBandGainDb,
+                                onValueChange = { viewModel.updateAirBandGain(it) },
+                                valueRange = 0f..6f,
+                                steps = 11,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("air_band_gain_slider"),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = StreamEmerald,
+                                    activeTrackColor = StreamEmerald,
+                                    inactiveTrackColor = Color(0xFF262634)
+                                )
+                            )
+                            Text("+${String.format("%.1f", prefs.airBandGainDb)} dB", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = StreamEmerald)
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = Color(0xFF22222E))
+
+                // 5. Tight Bass Punch & Mud-Cut (65 Hz & 280 Hz)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            SettingItemHeader(
+                                icon = Icons.Outlined.Bolt,
+                                label = "Tight Bass Punch & Mud-Cut"
+                            )
+                            Text(
+                                text = "Boosts 65 Hz kick punch while notching 280 Hz boxy mud to keep bass tight",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                color = Color(0xFF8E8E98),
+                                modifier = Modifier.padding(start = 25.dp, top = 2.dp)
+                            )
+                        }
+                        StudioSwitch(
+                            checked = prefs.bassPunchEnabled,
+                            onCheckedChange = { viewModel.updateBassPunchEnabled(it) },
+                            modifier = Modifier.testTag("bass_punch_switch")
+                        )
+                    }
+
+                    if (prefs.bassPunchEnabled) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 25.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text("Punch", fontSize = 10.sp, color = TextSecondary)
+                            Slider(
+                                value = prefs.bassPunchIntensity.toFloat(),
+                                onValueChange = { viewModel.updateBassPunchIntensity(it.toInt()) },
+                                valueRange = 0f..100f,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("bass_punch_slider"),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = StreamEmerald,
+                                    activeTrackColor = StreamEmerald,
+                                    inactiveTrackColor = Color(0xFF262634)
+                                )
+                            )
+                            Text("${prefs.bassPunchIntensity}%", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = StreamEmerald)
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = Color(0xFF22222E))
+
+                // 6. Sub-Bass Infrasonic Rumble Cut (28 Hz HPF)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 12.dp)
+                    ) {
+                        SettingItemHeader(
+                            icon = Icons.Outlined.VolumeOff,
+                            label = "Sub-Bass Rumble Cut (28 Hz HPF)"
+                        )
+                        Text(
+                            text = "Filters inaudible <28 Hz energy to save DAC power and prevent small driver flutter",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 11.sp,
+                            color = Color(0xFF8E8E98),
+                            lineHeight = 14.sp,
+                            modifier = Modifier.padding(start = 25.dp, top = 2.dp)
+                        )
+                    }
+                    StudioSwitch(
+                        checked = prefs.subBassCutEnabled,
+                        onCheckedChange = { viewModel.updateSubBassCut(it) },
+                        modifier = Modifier.testTag("sub_bass_cut_switch")
+                    )
+                }
+
+                HorizontalDivider(color = Color(0xFF22222E))
+
+                // 7. Frequency-Split Stereo Widener
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            SettingItemHeader(
+                                icon = Icons.Outlined.SurroundSound,
+                                label = "Split-Band Stereo Widener"
+                            )
+                            Text(
+                                text = "Locks sub-150Hz bass centered in mono while expanding stereo width for mids & highs",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                color = Color(0xFF8E8E98),
+                                modifier = Modifier.padding(start = 25.dp, top = 2.dp)
+                            )
+                        }
+                        StudioSwitch(
+                            checked = prefs.stereoWidenerEnabled,
+                            onCheckedChange = { viewModel.updateStereoWidener(it) },
+                            modifier = Modifier.testTag("stereo_widener_switch")
+                        )
+                    }
+
+                    if (prefs.stereoWidenerEnabled) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 25.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text("Width", fontSize = 10.sp, color = TextSecondary)
+                            Slider(
+                                value = prefs.stereoWidthPercent.toFloat(),
+                                onValueChange = { viewModel.updateStereoWidth(it.toInt()) },
+                                valueRange = 100f..150f,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("stereo_width_slider"),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = StreamEmerald,
+                                    activeTrackColor = StreamEmerald,
+                                    inactiveTrackColor = Color(0xFF262634)
+                                )
+                            )
+                            Text("${prefs.stereoWidthPercent}%", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = StreamEmerald)
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = Color(0xFF22222E))
+
+                // 8. 5-Band Equalizer Presets & Sliders
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    SettingItemHeader(
+                        icon = Icons.Outlined.Equalizer,
+                        label = "5-Band Graphic Equalizer"
+                    )
+
+                    // Presets
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val presets = listOf(
+                            "Flat" to AudioDspEngine.PRESET_FLAT,
+                            "Bass" to AudioDspEngine.PRESET_BASS_BOOST,
+                            "Vocal" to AudioDspEngine.PRESET_VOCAL,
+                            "Acoustic" to AudioDspEngine.PRESET_ACOUSTIC,
+                            "Rock" to AudioDspEngine.PRESET_ROCK
+                        )
+                        presets.forEach { (name, gains) ->
+                            val isSelected = prefs.eqPresetName.equals(name, ignoreCase = true)
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { viewModel.updateEqPreset(name, gains) },
+                                label = { Text(name, fontSize = 10.sp) },
+                                modifier = Modifier.testTag("settings_eq_preset_$name"),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = StreamEmerald.copy(alpha = 0.2f),
+                                    selectedLabelColor = StreamEmerald
+                                )
+                            )
+                        }
+                    }
+
+                    // Bass & Treble Quick Boosters
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Bass", fontSize = 10.sp, color = TextSecondary, modifier = Modifier.width(36.dp))
+                        Slider(
+                            value = prefs.bassBoostPercent.toFloat(),
+                            onValueChange = { viewModel.updateBassBoost(it.toInt()) },
+                            valueRange = 0f..100f,
+                            modifier = Modifier.weight(1f).testTag("settings_bass_boost_slider"),
+                            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = StreamEmerald, inactiveTrackColor = Color(0xFF262634))
+                        )
+                        Text("${prefs.bassBoostPercent}%", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.width(30.dp))
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Treble", fontSize = 10.sp, color = TextSecondary, modifier = Modifier.width(36.dp))
+                        Slider(
+                            value = prefs.trebleClarityPercent.toFloat(),
+                            onValueChange = { viewModel.updateTrebleClarity(it.toInt()) },
+                            valueRange = 0f..100f,
+                            modifier = Modifier.weight(1f).testTag("settings_treble_clarity_slider"),
+                            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = StreamEmerald, inactiveTrackColor = Color(0xFF262634))
+                        )
+                        Text("${prefs.trebleClarityPercent}%", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.width(30.dp))
+                    }
+
+                    // 5 Bands Sliders
+                    val bandFrequencies = listOf("100 Hz", "300 Hz", "1 kHz", "3.5 kHz", "8 kHz")
+                    val currentGains = listOf(prefs.eqBand0, prefs.eqBand1, prefs.eqBand2, prefs.eqBand3, prefs.eqBand4)
+
+                    bandFrequencies.forEachIndexed { index, label ->
+                        val gain = currentGains[index]
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(label, fontSize = 10.sp, color = TextSecondary, modifier = Modifier.width(46.dp))
+                            Slider(
+                                value = gain,
+                                onValueChange = { viewModel.updateEqBand(index, it) },
+                                valueRange = -12f..12f,
+                                modifier = Modifier.weight(1f).testTag("settings_eq_band_$index"),
+                                colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = StreamEmerald, inactiveTrackColor = Color(0xFF262634))
+                            )
+                            Text(
+                                text = "${if (gain > 0) "+" else ""}${String.format("%.1f", gain)}",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (gain != 0f) StreamEmerald else TextSecondary,
+                                modifier = Modifier.width(36.dp)
+                            )
+                        }
                     }
                 }
             }

@@ -61,9 +61,75 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun updateLimiterTrim(trimDb: Float) {
         prefsRepo.updateLimiterTrim(trimDb)
+        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
     }
 
     fun updateMutePhoneWhileStreaming(enabled: Boolean) {
         prefsRepo.updateMutePhoneWhileStreaming(enabled)
+    }
+
+    fun updateDspEnabled(enabled: Boolean) {
+        prefsRepo.updateDspEnabled(enabled)
+        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun updateSoftLimiter(enabled: Boolean) {
+        prefsRepo.updateSoftLimiter(enabled)
+        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun updateAirBandEnabled(enabled: Boolean) {
+        prefsRepo.updateAirBandEnabled(enabled)
+        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun updateAirBandGain(gainDb: Float) {
+        prefsRepo.updateAirBandGain(gainDb)
+        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun updateBassPunchEnabled(enabled: Boolean) {
+        prefsRepo.updateBassPunchEnabled(enabled)
+        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun updateBassPunchIntensity(intensity: Int) {
+        prefsRepo.updateBassPunchIntensity(intensity)
+        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun updateSubBassCut(enabled: Boolean) {
+        prefsRepo.updateSubBassCut(enabled)
+        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun updateStereoWidener(enabled: Boolean) {
+        prefsRepo.updateStereoWidener(enabled)
+        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun updateStereoWidth(widthPercent: Int) {
+        prefsRepo.updateStereoWidth(widthPercent)
+        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun updateBassBoost(percent: Int) {
+        prefsRepo.updateBassBoost(percent)
+        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun updateTrebleClarity(percent: Int) {
+        prefsRepo.updateTrebleClarity(percent)
+        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun updateEqPreset(name: String, gains: FloatArray) {
+        prefsRepo.updateEqPreset(name, gains)
+        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun updateEqBand(bandIndex: Int, gainDb: Float) {
+        prefsRepo.updateEqBand(bandIndex, gainDb)
+        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
     }
 }

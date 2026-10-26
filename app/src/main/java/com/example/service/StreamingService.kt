@@ -752,6 +752,13 @@ class StreamingService : Service() {
             bassBoostPercent = prefs.bassBoostPercent
             trebleClarityPercent = prefs.trebleClarityPercent
             setAllBandGains(prefs.eqBandGains)
+            airBandEnabled = prefs.airBandEnabled
+            airBandGainDb = prefs.airBandGainDb
+            bassPunchEnabled = prefs.bassPunchEnabled
+            bassPunchIntensity = prefs.bassPunchIntensity
+            subBassCutEnabled = prefs.subBassCutEnabled
+            stereoWidenerEnabled = prefs.stereoWidenerEnabled
+            stereoWidthPercent = prefs.stereoWidthPercent
         }
     }
 

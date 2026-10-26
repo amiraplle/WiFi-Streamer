@@ -44,11 +44,19 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.Audiotrack
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.Compress
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Equalizer
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Podcasts
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Stop
+import androidx.compose.material.icons.outlined.SurroundSound
 import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.VolumeOff
+import androidx.compose.material.icons.outlined.Waves
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -56,13 +64,25 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import com.example.data.preferences.UserPreferences
+import com.example.domain.audio.AudioDspEngine
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -98,6 +118,7 @@ import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.WarningAmber
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerScreen(
     viewModel: PlayerViewModel,
@@ -108,6 +129,9 @@ fun PlayerScreen(
     val uiState by viewModel.uiState.collectAsState()
     val savedFolder by viewModel.savedFolderName.collectAsState()
     val isRescanning by viewModel.isRescanning.collectAsState()
+    val prefs by viewModel.userPreferences.collectAsState()
+
+    var showDspSheet by remember { mutableStateOf(false) }
 
     // SAF File Picker (Select audio files: OPUS, FLAC, WAV, MP3, M4A, OGG)
     val pickAudioLauncher = rememberLauncherForActivityResult(
@@ -197,34 +221,70 @@ fun PlayerScreen(
                     )
                 }
 
-                // Status Pill
-                Surface(
-                    color = if (isPlaying) StreamEmerald.copy(alpha = 0.15f) else Color(0xFF1C1C26),
-                    border = BorderStroke(1.dp, if (isPlaying) StreamEmerald.copy(alpha = 0.4f) else Color(0xFF2E2E3E)),
-                    shape = RoundedCornerShape(8.dp)
+                // Right: Real-time DSP Button + Status Pill
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    // Quick Real-Time DSP Button
+                    Surface(
+                        color = if (prefs.dspEnabled) StreamEmerald.copy(alpha = 0.16f) else Color(0xFF1B1B26),
+                        border = BorderStroke(1.dp, if (prefs.dspEnabled) StreamEmerald.copy(alpha = 0.6f) else Color(0xFF2C2C3E)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { showDspSheet = true }
+                            .testTag("player_dsp_shortcut_button")
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (isPlaying) StreamEmerald
-                                    else if (uiState.playerState == PlayerState.PAUSED) WarningAmber
-                                    else Color(0xFF6E6E82)
-                                )
-                        )
-                        Text(
-                            text = if (isPlaying) "STREAMING" else if (uiState.playerState == PlayerState.PAUSED) "PAUSED" else "STANDBY",
-                            color = if (isPlaying) StreamEmerald else if (uiState.playerState == PlayerState.PAUSED) WarningAmber else Color(0xFFA0A0B8),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Equalizer,
+                                contentDescription = "DSP Tweaks",
+                                tint = if (prefs.dspEnabled) StreamEmerald else Color(0xFFA0A0B8),
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = if (prefs.dspEnabled) "DSP ON" else "DSP",
+                                color = if (prefs.dspEnabled) StreamEmerald else Color(0xFFA0A0B8),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // Status Pill
+                    Surface(
+                        color = if (isPlaying) StreamEmerald.copy(alpha = 0.15f) else Color(0xFF1C1C26),
+                        border = BorderStroke(1.dp, if (isPlaying) StreamEmerald.copy(alpha = 0.4f) else Color(0xFF2E2E3E)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (isPlaying) StreamEmerald
+                                        else if (uiState.playerState == PlayerState.PAUSED) WarningAmber
+                                        else Color(0xFF6E6E82)
+                                    )
+                            )
+                            Text(
+                                text = if (isPlaying) "STREAMING" else if (uiState.playerState == PlayerState.PAUSED) "PAUSED" else "STANDBY",
+                                color = if (isPlaying) StreamEmerald else if (uiState.playerState == PlayerState.PAUSED) WarningAmber else Color(0xFFA0A0B8),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
                     }
                 }
             }
@@ -570,84 +630,121 @@ fun PlayerScreen(
                         }
                     }
 
-                    // Bottom In-Card Sub-Bar: ESP32 Target Format Selector Dropdown
+                    // Bottom In-Card Sub-Bar: ESP32 Target Format Selector + Real-Time DSP Button
                     var formatMenuExpanded by remember { mutableStateOf(false) }
 
-                    Box(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            Surface(
+                                color = Color(0xFF13131C),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, StreamEmerald.copy(alpha = 0.35f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { formatMenuExpanded = true }
+                                    .testTag("player_format_selector_badge")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Podcasts,
+                                            contentDescription = null,
+                                            tint = StreamEmerald,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Text(
+                                            text = "ESP32: ${uiState.outputFormatInfo}",
+                                            color = StreamEmerald,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Outlined.ArrowDropDown,
+                                        contentDescription = "Select Format",
+                                        tint = StreamEmerald,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+
+                            DropdownMenu(
+                                expanded = formatMenuExpanded,
+                                onDismissRequest = { formatMenuExpanded = false },
+                                modifier = Modifier
+                                    .background(Color(0xFF16161E))
+                                    .border(BorderStroke(1.dp, Color(0xFF2E2E3E)), RoundedCornerShape(12.dp))
+                                    .clip(RoundedCornerShape(12.dp))
+                            ) {
+                                viewModel.availableFormats.forEach { format ->
+                                    val isSelected = uiState.outputFormatInfo.contains("${format.sampleRate / 1000.0}") && uiState.outputFormatInfo.contains("${format.bitDepth}-bit")
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text(
+                                                    text = format.displayName,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                    color = if (isSelected) StreamEmerald else Color.White,
+                                                    fontSize = 12.sp
+                                                )
+                                                Text(
+                                                    text = format.dacCompatibility,
+                                                    fontSize = 10.sp,
+                                                    color = Color(0xFF888898)
+                                                )
+                                            }
+                                        },
+                                        onClick = {
+                                            viewModel.updateAudioFormat(format)
+                                            formatMenuExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Prominent Real-Time DSP Button in Player Card
                         Surface(
-                            color = Color(0xFF13131C),
+                            color = if (prefs.dspEnabled) StreamEmerald.copy(alpha = 0.16f) else Color(0xFF14141E),
                             shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, StreamEmerald.copy(alpha = 0.35f)),
+                            border = BorderStroke(1.dp, if (prefs.dspEnabled) StreamEmerald.copy(alpha = 0.6f) else Color(0xFF2A2A3A)),
                             modifier = Modifier
-                                .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
-                                .clickable { formatMenuExpanded = true }
-                                .testTag("player_format_selector_badge")
+                                .clickable { showDspSheet = true }
+                                .testTag("player_dsp_badge_button")
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Podcasts,
-                                        contentDescription = null,
-                                        tint = StreamEmerald,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Text(
-                                        text = "ESP32 Target: ${uiState.outputFormatInfo}",
-                                        color = StreamEmerald,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
                                 Icon(
-                                    imageVector = Icons.Outlined.ArrowDropDown,
-                                    contentDescription = "Select Format",
-                                    tint = StreamEmerald,
-                                    modifier = Modifier.size(16.dp)
+                                    imageVector = Icons.Outlined.Tune,
+                                    contentDescription = "Real-Time DSP",
+                                    tint = if (prefs.dspEnabled) StreamEmerald else Color.White,
+                                    modifier = Modifier.size(14.dp)
                                 )
-                            }
-                        }
-
-                        DropdownMenu(
-                            expanded = formatMenuExpanded,
-                            onDismissRequest = { formatMenuExpanded = false },
-                            modifier = Modifier
-                                .background(Color(0xFF16161E))
-                                .border(BorderStroke(1.dp, Color(0xFF2E2E3E)), RoundedCornerShape(12.dp))
-                                .clip(RoundedCornerShape(12.dp))
-                        ) {
-                            viewModel.availableFormats.forEach { format ->
-                                val isSelected = uiState.outputFormatInfo.contains("${format.sampleRate / 1000.0}") && uiState.outputFormatInfo.contains("${format.bitDepth}-bit")
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text(
-                                                text = format.displayName,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (isSelected) StreamEmerald else Color.White,
-                                                fontSize = 12.sp
-                                            )
-                                            Text(
-                                                text = format.dacCompatibility,
-                                                fontSize = 10.sp,
-                                                color = Color(0xFF888898)
-                                            )
-                                        }
-                                    },
-                                    onClick = {
-                                        viewModel.updateAudioFormat(format)
-                                        formatMenuExpanded = false
-                                    }
+                                Text(
+                                    text = if (prefs.dspEnabled) "DSP ACTIVE" else "DSP TWEAKS",
+                                    color = if (prefs.dspEnabled) StreamEmerald else Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
@@ -947,6 +1044,45 @@ fun PlayerScreen(
             Spacer(modifier = Modifier.height(72.dp))
         }
     }
+
+    // =========================================================================
+    // REAL-TIME DSP BOTTOM SHEET OVERLAY
+    // =========================================================================
+    if (showDspSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showDspSheet = false },
+            containerColor = Color(0xFF111118),
+            contentColor = Color.White,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            dragHandle = {
+                Box(
+                    modifier = Modifier
+                        .padding(top = 10.dp, bottom = 6.dp)
+                        .size(width = 36.dp, height = 4.dp)
+                        .background(Color(0xFF383848), RoundedCornerShape(2.dp))
+                )
+            }
+        ) {
+            RealTimeDspBottomSheetContent(
+                prefs = prefs,
+                onDspEnabledChange = { viewModel.updateDspEnabled(it) },
+                onSoftLimiterChange = { viewModel.updateSoftLimiter(it) },
+                onLimiterTrimChange = { viewModel.updateLimiterTrim(it) },
+                onAirBandEnabledChange = { viewModel.updateAirBandEnabled(it) },
+                onAirBandGainChange = { viewModel.updateAirBandGain(it) },
+                onBassPunchEnabledChange = { viewModel.updateBassPunchEnabled(it) },
+                onBassPunchIntensityChange = { viewModel.updateBassPunchIntensity(it) },
+                onSubBassCutChange = { viewModel.updateSubBassCut(it) },
+                onStereoWidenerChange = { viewModel.updateStereoWidener(it) },
+                onStereoWidthChange = { viewModel.updateStereoWidth(it) },
+                onEqPresetChange = { name, gains -> viewModel.updateEqPreset(name, gains) },
+                onOpenFullSettings = {
+                    showDspSheet = false
+                    onNavigateToSettings()
+                }
+            )
+        }
+    }
 }
 
 /**
@@ -1108,4 +1244,398 @@ private fun formatDuration(millis: Long): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return "%d:%02d".format(minutes, seconds)
+}
+
+@Composable
+private fun RealTimeDspBottomSheetContent(
+    prefs: UserPreferences,
+    onDspEnabledChange: (Boolean) -> Unit,
+    onSoftLimiterChange: (Boolean) -> Unit,
+    onLimiterTrimChange: (Float) -> Unit,
+    onAirBandEnabledChange: (Boolean) -> Unit,
+    onAirBandGainChange: (Float) -> Unit,
+    onBassPunchEnabledChange: (Boolean) -> Unit,
+    onBassPunchIntensityChange: (Int) -> Unit,
+    onSubBassCutChange: (Boolean) -> Unit,
+    onStereoWidenerChange: (Boolean) -> Unit,
+    onStereoWidthChange: (Int) -> Unit,
+    onEqPresetChange: (String, FloatArray) -> Unit,
+    onOpenFullSettings: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // Top Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(if (prefs.dspEnabled) StreamEmerald.copy(alpha = 0.2f) else Color(0xFF1E1E28)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Tune,
+                        contentDescription = "DSP",
+                        tint = if (prefs.dspEnabled) StreamEmerald else Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Column {
+                    Text(
+                        text = "Real-Time DSP Tweaks",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = if (prefs.dspEnabled) "Live 64-bit PCM audio filtering active" else "DSP engine is currently bypassed",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (prefs.dspEnabled) StreamEmerald else TextSecondary,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            Switch(
+                checked = prefs.dspEnabled,
+                onCheckedChange = onDspEnabledChange,
+                modifier = Modifier.testTag("modal_dsp_master_switch"),
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = StreamEmerald,
+                    uncheckedThumbColor = Color(0xFF888898),
+                    uncheckedTrackColor = Color(0xFF22222E)
+                )
+            )
+        }
+
+        HorizontalDivider(color = Color(0xFF22222E))
+
+        // 1. Air Band High-Shelf (14 kHz)
+        Surface(
+            color = Color(0xFF161622),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, if (prefs.airBandEnabled) StreamEmerald.copy(alpha = 0.4f) else Color(0xFF262636)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Outlined.Waves, contentDescription = null, tint = StreamEmerald, modifier = Modifier.size(18.dp))
+                        Column {
+                            Text("Air Band (14 kHz)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = TextPrimary)
+                            Text("Silky shimmer & open air without sibilance", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 10.sp)
+                        }
+                    }
+                    Switch(
+                        checked = prefs.airBandEnabled,
+                        onCheckedChange = onAirBandEnabledChange,
+                        modifier = Modifier.testTag("modal_air_band_switch"),
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = StreamEmerald)
+                    )
+                }
+
+                if (prefs.airBandEnabled) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("Gain", fontSize = 10.sp, color = TextSecondary)
+                        Slider(
+                            value = prefs.airBandGainDb,
+                            onValueChange = onAirBandGainChange,
+                            valueRange = 0f..6f,
+                            steps = 11,
+                            modifier = Modifier.weight(1f).testTag("modal_air_band_slider"),
+                            colors = SliderDefaults.colors(thumbColor = StreamEmerald, activeTrackColor = StreamEmerald, inactiveTrackColor = Color(0xFF2B2B3C))
+                        )
+                        Text("+${String.format("%.1f", prefs.airBandGainDb)} dB", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = StreamEmerald)
+                    }
+                }
+            }
+        }
+
+        // 2. Tight Bass Punch & Mud-Cut
+        Surface(
+            color = Color(0xFF161622),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, if (prefs.bassPunchEnabled) StreamEmerald.copy(alpha = 0.4f) else Color(0xFF262636)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Outlined.Bolt, contentDescription = null, tint = StreamEmerald, modifier = Modifier.size(18.dp))
+                        Column {
+                            Text("Tight Bass Punch & Mud-Cut", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = TextPrimary)
+                            Text("65 Hz kick snap + 280 Hz boxy mud notch", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 10.sp)
+                        }
+                    }
+                    Switch(
+                        checked = prefs.bassPunchEnabled,
+                        onCheckedChange = onBassPunchEnabledChange,
+                        modifier = Modifier.testTag("modal_bass_punch_switch"),
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = StreamEmerald)
+                    )
+                }
+
+                if (prefs.bassPunchEnabled) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("Punch", fontSize = 10.sp, color = TextSecondary)
+                        Slider(
+                            value = prefs.bassPunchIntensity.toFloat(),
+                            onValueChange = { onBassPunchIntensityChange(it.toInt()) },
+                            valueRange = 0f..100f,
+                            modifier = Modifier.weight(1f).testTag("modal_bass_punch_slider"),
+                            colors = SliderDefaults.colors(thumbColor = StreamEmerald, activeTrackColor = StreamEmerald, inactiveTrackColor = Color(0xFF2B2B3C))
+                        )
+                        Text("${prefs.bassPunchIntensity}%", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = StreamEmerald)
+                    }
+                }
+            }
+        }
+
+        // 3. Sub-Bass Infrasonic Rumble Cut (28 Hz HPF)
+        Surface(
+            color = Color(0xFF161622),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, if (prefs.subBassCutEnabled) StreamEmerald.copy(alpha = 0.4f) else Color(0xFF262636)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Outlined.VolumeOff, contentDescription = null, tint = StreamEmerald, modifier = Modifier.size(18.dp))
+                    Column {
+                        Text("Sub-Bass Rumble Cut (28 Hz)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Text("Saves DAC headroom & stops small cone flutter", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 10.sp)
+                    }
+                }
+                Switch(
+                    checked = prefs.subBassCutEnabled,
+                    onCheckedChange = onSubBassCutChange,
+                    modifier = Modifier.testTag("modal_sub_bass_cut_switch"),
+                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = StreamEmerald)
+                )
+            }
+        }
+
+        // 4. Split-Band Stereo Widener
+        Surface(
+            color = Color(0xFF161622),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, if (prefs.stereoWidenerEnabled) StreamEmerald.copy(alpha = 0.4f) else Color(0xFF262636)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Outlined.SurroundSound, contentDescription = null, tint = StreamEmerald, modifier = Modifier.size(18.dp))
+                        Column {
+                            Text("Split-Band Stereo Widener", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = TextPrimary)
+                            Text("Mono sub-150Hz bass + wide high soundstage", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 10.sp)
+                        }
+                    }
+                    Switch(
+                        checked = prefs.stereoWidenerEnabled,
+                        onCheckedChange = onStereoWidenerChange,
+                        modifier = Modifier.testTag("modal_stereo_widener_switch"),
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = StreamEmerald)
+                    )
+                }
+
+                if (prefs.stereoWidenerEnabled) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("Width", fontSize = 10.sp, color = TextSecondary)
+                        Slider(
+                            value = prefs.stereoWidthPercent.toFloat(),
+                            onValueChange = { onStereoWidthChange(it.toInt()) },
+                            valueRange = 100f..150f,
+                            modifier = Modifier.weight(1f).testTag("modal_stereo_width_slider"),
+                            colors = SliderDefaults.colors(thumbColor = StreamEmerald, activeTrackColor = StreamEmerald, inactiveTrackColor = Color(0xFF2B2B3C))
+                        )
+                        Text("${prefs.stereoWidthPercent}%", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = StreamEmerald)
+                    }
+                }
+            }
+        }
+
+        // 5. Soft-Knee Peak Limiter & Headroom Trim
+        Surface(
+            color = Color(0xFF161622),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, if (prefs.softLimiterEnabled) StreamEmerald.copy(alpha = 0.4f) else Color(0xFF262636)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Outlined.Compress, contentDescription = null, tint = StreamEmerald, modifier = Modifier.size(18.dp))
+                        Column {
+                            Text("Soft-Knee Peak Limiter", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = TextPrimary)
+                            Text("Anti-clipping protection at -1.36 dBFS", style = MaterialTheme.typography.bodySmall, color = TextSecondary, fontSize = 10.sp)
+                        }
+                    }
+                    Switch(
+                        checked = prefs.softLimiterEnabled,
+                        onCheckedChange = onSoftLimiterChange,
+                        modifier = Modifier.testTag("modal_soft_limiter_switch"),
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = StreamEmerald)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("Trim", fontSize = 10.sp, color = TextSecondary)
+                    Slider(
+                        value = prefs.limiterTrimDb,
+                        onValueChange = onLimiterTrimChange,
+                        valueRange = -6f..6f,
+                        steps = 23,
+                        modifier = Modifier.weight(1f).testTag("modal_limiter_trim_slider"),
+                        colors = SliderDefaults.colors(thumbColor = StreamEmerald, activeTrackColor = StreamEmerald, inactiveTrackColor = Color(0xFF2B2B3C))
+                    )
+                    Surface(
+                        color = Color(0xFF1F1F2C),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.clickable { onLimiterTrimChange(0f) }
+                    ) {
+                        Text(
+                            text = if (prefs.limiterTrimDb > 0f) "+${String.format("%.1f", prefs.limiterTrimDb)} dB"
+                                   else if (prefs.limiterTrimDb < 0f) "${String.format("%.1f", prefs.limiterTrimDb)} dB"
+                                   else "0 dB",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (prefs.limiterTrimDb != 0f) StreamEmerald else Color.White,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // 6. Quick EQ Presets
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text("Equalizer Presets", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = TextSecondary)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                val presets = listOf(
+                    "Flat" to AudioDspEngine.PRESET_FLAT,
+                    "Bass" to AudioDspEngine.PRESET_BASS_BOOST,
+                    "Vocal" to AudioDspEngine.PRESET_VOCAL,
+                    "Acoustic" to AudioDspEngine.PRESET_ACOUSTIC,
+                    "Rock" to AudioDspEngine.PRESET_ROCK
+                )
+                presets.forEach { (name, gains) ->
+                    val isSelected = prefs.eqPresetName.equals(name, ignoreCase = true)
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onEqPresetChange(name, gains) },
+                        label = { Text(name, fontSize = 10.sp) },
+                        modifier = Modifier.testTag("modal_eq_preset_$name"),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = StreamEmerald.copy(alpha = 0.2f),
+                            selectedLabelColor = StreamEmerald
+                        )
+                    )
+                }
+            }
+        }
+
+        // Link to Settings
+        Button(
+            onClick = onOpenFullSettings,
+            modifier = Modifier.fillMaxWidth().testTag("modal_open_settings_button"),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E1E2C)),
+            shape = RoundedCornerShape(10.dp)
+        ) {
+            Icon(Icons.Outlined.Settings, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Open Full Settings & 5-Band EQ", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+    }
 }
