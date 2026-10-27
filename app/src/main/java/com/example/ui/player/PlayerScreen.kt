@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -83,6 +84,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import com.example.data.preferences.UserPreferences
 import com.example.domain.audio.AudioDspEngine
+import com.example.ui.components.DspModalBottomSheet
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -221,70 +223,34 @@ fun PlayerScreen(
                     )
                 }
 
-                // Right: Real-time DSP Button + Status Pill
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                // Right: Status Pill
+                Surface(
+                    color = if (isPlaying) StreamEmerald.copy(alpha = 0.15f) else Color(0xFF1C1C26),
+                    border = BorderStroke(1.dp, if (isPlaying) StreamEmerald.copy(alpha = 0.4f) else Color(0xFF2E2E3E)),
+                    shape = RoundedCornerShape(8.dp)
                 ) {
-                    // Quick Real-Time DSP Button
-                    Surface(
-                        color = if (prefs.dspEnabled) StreamEmerald.copy(alpha = 0.16f) else Color(0xFF1B1B26),
-                        border = BorderStroke(1.dp, if (prefs.dspEnabled) StreamEmerald.copy(alpha = 0.6f) else Color(0xFF2C2C3E)),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { showDspSheet = true }
-                            .testTag("player_dsp_shortcut_button")
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Equalizer,
-                                contentDescription = "DSP Tweaks",
-                                tint = if (prefs.dspEnabled) StreamEmerald else Color(0xFFA0A0B8),
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Text(
-                                text = if (prefs.dspEnabled) "DSP ON" else "DSP",
-                                color = if (prefs.dspEnabled) StreamEmerald else Color(0xFFA0A0B8),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    // Status Pill
-                    Surface(
-                        color = if (isPlaying) StreamEmerald.copy(alpha = 0.15f) else Color(0xFF1C1C26),
-                        border = BorderStroke(1.dp, if (isPlaying) StreamEmerald.copy(alpha = 0.4f) else Color(0xFF2E2E3E)),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (isPlaying) StreamEmerald
-                                        else if (uiState.playerState == PlayerState.PAUSED) WarningAmber
-                                        else Color(0xFF6E6E82)
-                                    )
-                            )
-                            Text(
-                                text = if (isPlaying) "STREAMING" else if (uiState.playerState == PlayerState.PAUSED) "PAUSED" else "STANDBY",
-                                color = if (isPlaying) StreamEmerald else if (uiState.playerState == PlayerState.PAUSED) WarningAmber else Color(0xFFA0A0B8),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.5.sp
-                            )
-                        }
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isPlaying) StreamEmerald
+                                    else if (uiState.playerState == PlayerState.PAUSED) WarningAmber
+                                    else Color(0xFF6E6E82)
+                                )
+                        )
+                        Text(
+                            text = if (isPlaying) "STREAMING" else if (uiState.playerState == PlayerState.PAUSED) "PAUSED" else "STANDBY",
+                            color = if (isPlaying) StreamEmerald else if (uiState.playerState == PlayerState.PAUSED) WarningAmber else Color(0xFFA0A0B8),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
                     }
                 }
             }
@@ -436,6 +402,15 @@ fun PlayerScreen(
                             )
 
                             // Specs & Codec Pill
+                            val trackCodecDisplay = if (currentTrack != null) {
+                                if (uiState.sourceFormatInfo.isNotBlank() && uiState.sourceFormatInfo != "No audio loaded") {
+                                    uiState.sourceFormatInfo
+                                } else {
+                                    "${currentTrack.formatDisplay} • ${currentTrack.sampleRate / 1000.0} kHz • ${if (currentTrack.channels == 2) "Stereo" else "Mono"}"
+                                }
+                            } else {
+                                "No track selected"
+                            }
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -447,7 +422,7 @@ fun PlayerScreen(
                                     border = BorderStroke(1.dp, Color(0xFF2C2C3E))
                                 ) {
                                     Text(
-                                        text = uiState.sourceFormatInfo,
+                                        text = trackCodecDisplay,
                                         color = Color(0xFFB0B0C4),
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Medium,
@@ -866,6 +841,7 @@ fun PlayerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
+                        modifier = Modifier.weight(1f),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
@@ -873,7 +849,9 @@ fun PlayerScreen(
                             text = "Playlist Queue (${uiState.playlist.size})",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
-                            color = TextPrimary
+                            color = TextPrimary,
+                            maxLines = 1,
+                            softWrap = false
                         )
 
                         if (savedFolder != null) {
@@ -899,7 +877,9 @@ fun PlayerScreen(
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.widthIn(max = 95.dp)
                                     )
                                 }
                             }
@@ -908,7 +888,7 @@ fun PlayerScreen(
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         // Manual Rescan Button (🔄)
                         if (savedFolder != null) {
@@ -917,6 +897,7 @@ fun PlayerScreen(
                                 shape = RoundedCornerShape(8.dp),
                                 border = BorderStroke(1.dp, Color(0xFF2C2C3C)),
                                 modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
                                     .clickable(enabled = !isRescanning) {
                                         viewModel.rescanFolder { added, removed ->
                                             if (added > 0 || removed > 0) {
@@ -929,13 +910,13 @@ fun PlayerScreen(
                                     .testTag("rescan_folder_button")
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     if (isRescanning) {
                                         CircularProgressIndicator(
-                                            modifier = Modifier.size(12.dp),
+                                            modifier = Modifier.size(11.dp),
                                             color = StreamEmerald,
                                             strokeWidth = 1.5.dp
                                         )
@@ -944,14 +925,16 @@ fun PlayerScreen(
                                             imageVector = Icons.Outlined.Sync,
                                             contentDescription = "Rescan Folder",
                                             tint = StreamEmerald,
-                                            modifier = Modifier.size(13.dp)
+                                            modifier = Modifier.size(12.dp)
                                         )
                                     }
                                     Text(
                                         text = if (isRescanning) "Scanning…" else "Rescan",
                                         color = StreamEmerald,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             }
@@ -959,20 +942,33 @@ fun PlayerScreen(
 
                         if (uiState.playlist.isNotEmpty()) {
                             Surface(
-                                color = Color.Transparent,
-                                modifier = Modifier.clickable { viewModel.clearQueue() }
+                                color = Color(0xFF1A1A22),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, Color(0xFF2C2C3C)),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { viewModel.clearQueue() }
+                                    .testTag("clear_queue_button")
                             ) {
                                 Row(
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Outlined.DeleteOutline,
-                                        contentDescription = null,
+                                        contentDescription = "Clear Queue",
                                         tint = TextSecondary,
-                                        modifier = Modifier.size(13.dp)
+                                        modifier = Modifier.size(12.dp)
                                     )
-                                    Text("Clear", color = TextSecondary, fontSize = 11.sp)
+                                    Text(
+                                        text = "Clear",
+                                        color = TextSecondary,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
                                 }
                             }
                         }
@@ -1049,39 +1045,24 @@ fun PlayerScreen(
     // REAL-TIME DSP BOTTOM SHEET OVERLAY
     // =========================================================================
     if (showDspSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showDspSheet = false },
-            containerColor = Color(0xFF111118),
-            contentColor = Color.White,
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            dragHandle = {
-                Box(
-                    modifier = Modifier
-                        .padding(top = 10.dp, bottom = 6.dp)
-                        .size(width = 36.dp, height = 4.dp)
-                        .background(Color(0xFF383848), RoundedCornerShape(2.dp))
-                )
+        DspModalBottomSheet(
+            onDismiss = { showDspSheet = false },
+            prefs = prefs,
+            onDspEnabledChange = { viewModel.updateDspEnabled(it) },
+            onSoftLimiterChange = { viewModel.updateSoftLimiter(it) },
+            onLimiterTrimChange = { viewModel.updateLimiterTrim(it) },
+            onAirBandEnabledChange = { viewModel.updateAirBandEnabled(it) },
+            onAirBandGainChange = { viewModel.updateAirBandGain(it) },
+            onBassPunchEnabledChange = { viewModel.updateBassPunchEnabled(it) },
+            onBassPunchIntensityChange = { viewModel.updateBassPunchIntensity(it) },
+            onSubBassCutChange = { viewModel.updateSubBassCut(it) },
+            onStereoWidenerChange = { viewModel.updateStereoWidener(it) },
+            onStereoWidthChange = { viewModel.updateStereoWidth(it) },
+            onOpenFullSettings = {
+                showDspSheet = false
+                onNavigateToSettings()
             }
-        ) {
-            RealTimeDspBottomSheetContent(
-                prefs = prefs,
-                onDspEnabledChange = { viewModel.updateDspEnabled(it) },
-                onSoftLimiterChange = { viewModel.updateSoftLimiter(it) },
-                onLimiterTrimChange = { viewModel.updateLimiterTrim(it) },
-                onAirBandEnabledChange = { viewModel.updateAirBandEnabled(it) },
-                onAirBandGainChange = { viewModel.updateAirBandGain(it) },
-                onBassPunchEnabledChange = { viewModel.updateBassPunchEnabled(it) },
-                onBassPunchIntensityChange = { viewModel.updateBassPunchIntensity(it) },
-                onSubBassCutChange = { viewModel.updateSubBassCut(it) },
-                onStereoWidenerChange = { viewModel.updateStereoWidener(it) },
-                onStereoWidthChange = { viewModel.updateStereoWidth(it) },
-                onEqPresetChange = { name, gains -> viewModel.updateEqPreset(name, gains) },
-                onOpenFullSettings = {
-                    showDspSheet = false
-                    onNavigateToSettings()
-                }
-            )
-        }
+        )
     }
 }
 
@@ -1259,7 +1240,6 @@ private fun RealTimeDspBottomSheetContent(
     onSubBassCutChange: (Boolean) -> Unit,
     onStereoWidenerChange: (Boolean) -> Unit,
     onStereoWidthChange: (Int) -> Unit,
-    onEqPresetChange: (String, FloatArray) -> Unit,
     onOpenFullSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1591,39 +1571,6 @@ private fun RealTimeDspBottomSheetContent(
             }
         }
 
-        // 6. Quick EQ Presets
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text("Equalizer Presets", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = TextSecondary)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                val presets = listOf(
-                    "Flat" to AudioDspEngine.PRESET_FLAT,
-                    "Bass" to AudioDspEngine.PRESET_BASS_BOOST,
-                    "Vocal" to AudioDspEngine.PRESET_VOCAL,
-                    "Acoustic" to AudioDspEngine.PRESET_ACOUSTIC,
-                    "Rock" to AudioDspEngine.PRESET_ROCK
-                )
-                presets.forEach { (name, gains) ->
-                    val isSelected = prefs.eqPresetName.equals(name, ignoreCase = true)
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { onEqPresetChange(name, gains) },
-                        label = { Text(name, fontSize = 10.sp) },
-                        modifier = Modifier.testTag("modal_eq_preset_$name"),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = StreamEmerald.copy(alpha = 0.2f),
-                            selectedLabelColor = StreamEmerald
-                        )
-                    )
-                }
-            }
-        }
-
         // Link to Settings
         Button(
             onClick = onOpenFullSettings,
@@ -1633,7 +1580,7 @@ private fun RealTimeDspBottomSheetContent(
         ) {
             Icon(Icons.Outlined.Settings, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Open Full Settings & 5-Band EQ", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text("Open Full DSP Settings", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         }
 
         Spacer(modifier = Modifier.height(16.dp))

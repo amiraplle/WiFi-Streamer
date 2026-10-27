@@ -116,28 +116,48 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         StreamingService.instance?.updateDspSettings(userPreferences.value)
     }
 
-    fun setEqPreset(presetName: String, gains: FloatArray) {
-        prefsRepo.updateEqPreset(presetName, gains)
-        StreamingService.instance?.updateDspSettings(userPreferences.value)
-    }
-
-    fun setEqBand(bandIndex: Int, gainDb: Float) {
-        prefsRepo.updateEqBand(bandIndex, gainDb)
-        StreamingService.instance?.updateDspSettings(userPreferences.value)
-    }
-
     fun setSoftLimiter(enabled: Boolean) {
         prefsRepo.updateSoftLimiter(enabled)
         StreamingService.instance?.updateDspSettings(userPreferences.value)
     }
 
-    fun setBassBoost(percent: Int) {
-        prefsRepo.updateBassBoost(percent)
+    fun setLimiterTrim(trimDb: Float) {
+        prefsRepo.updateLimiterTrim(trimDb)
         StreamingService.instance?.updateDspSettings(userPreferences.value)
     }
 
-    fun setTrebleClarity(percent: Int) {
-        prefsRepo.updateTrebleClarity(percent)
+    fun setAirBandEnabled(enabled: Boolean) {
+        prefsRepo.updateAirBandEnabled(enabled)
+        StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun setAirBandGain(gainDb: Float) {
+        prefsRepo.updateAirBandGain(gainDb)
+        StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun setBassPunchEnabled(enabled: Boolean) {
+        prefsRepo.updateBassPunchEnabled(enabled)
+        StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun setBassPunchIntensity(intensity: Int) {
+        prefsRepo.updateBassPunchIntensity(intensity)
+        StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun setSubBassCut(enabled: Boolean) {
+        prefsRepo.updateSubBassCut(enabled)
+        StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun setStereoWidenerEnabled(enabled: Boolean) {
+        prefsRepo.updateStereoWidener(enabled)
+        StreamingService.instance?.updateDspSettings(userPreferences.value)
+    }
+
+    fun setStereoWidth(widthPercent: Int) {
+        prefsRepo.updateStereoWidth(widthPercent)
         StreamingService.instance?.updateDspSettings(userPreferences.value)
     }
 

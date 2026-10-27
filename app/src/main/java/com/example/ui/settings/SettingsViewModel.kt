@@ -28,6 +28,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun updateBufferPreset(preset: BufferLatencyPreset) {
         prefsRepo.updateBufferPreset(preset)
+        com.example.service.StreamingService.instance?.updateTargetBufferMs(preset.durationMs)
+    }
+
+    fun updateTargetBufferMs(ms: Int) {
+        prefsRepo.updateTargetBufferMs(ms)
+        com.example.service.StreamingService.instance?.updateTargetBufferMs(ms)
     }
 
     fun updateNetworkSettings(

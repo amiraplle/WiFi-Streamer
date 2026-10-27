@@ -509,7 +509,7 @@ class StreamingService : Service() {
         ringBuffer.clear()
 
         // Configure jitter buffer pre-roll and start paced transmitter
-        pacedTransmitter?.setTargetLatencyPreset(prefs.bufferPreset, prefs.audioFormat)
+        pacedTransmitter?.setTargetLatencyMs(prefs.targetBufferMs, prefs.audioFormat)
         pacedTransmitter?.start(prefs.audioFormat)
 
         // Start Audio Capture with effective source (Zero Screen Capture for Direct & Browser)
@@ -742,6 +742,11 @@ class StreamingService : Service() {
     fun setMuted(muted: Boolean) {
         captureManager?.isMuted = muted
         _telemetry.value = _telemetry.value.copy(isMuted = muted)
+    }
+
+    fun updateTargetBufferMs(targetMs: Int) {
+        val prefs = AppContainer.getPreferences(this).userPreferences.value
+        pacedTransmitter?.setTargetLatencyMs(targetMs, prefs.audioFormat)
     }
 
     fun updateDspSettings(prefs: UserPreferences) {

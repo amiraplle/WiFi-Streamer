@@ -21,6 +21,7 @@ data class UserPreferences(
     val channelCount: Int = 2,
     val headerMode: HeaderMode = HeaderMode.AUTO,
     val bufferPreset: BufferLatencyPreset = BufferLatencyPreset.BALANCED,
+    val targetBufferMs: Int = 120,
     val transmissionVolume: Int = 100,
     val isMuted: Boolean = false,
     val autoReconnect: Boolean = true,
@@ -96,6 +97,7 @@ class UserPreferencesRepository(context: Context) {
             } catch (_: Exception) {
                 BufferLatencyPreset.BALANCED
             },
+            targetBufferMs = prefs.getInt("target_buffer_ms", 120).coerceIn(15, 300),
             transmissionVolume = prefs.getInt("transmission_volume", 100),
             isMuted = prefs.getBoolean("is_muted", false),
             autoReconnect = prefs.getBoolean("auto_reconnect", true),
@@ -169,8 +171,31 @@ class UserPreferencesRepository(context: Context) {
     }
 
     fun updateBufferPreset(preset: BufferLatencyPreset) {
-        prefs.edit().putString("buffer_preset", preset.name).apply()
-        _userPreferences.value = _userPreferences.value.copy(bufferPreset = preset)
+        prefs.edit()
+            .putString("buffer_preset", preset.name)
+            .putInt("target_buffer_ms", preset.durationMs)
+            .apply()
+        _userPreferences.value = _userPreferences.value.copy(
+            bufferPreset = preset,
+            targetBufferMs = preset.durationMs
+        )
+    }
+
+    fun updateTargetBufferMs(ms: Int) {
+        val clamped = ms.coerceIn(15, 300)
+        val matchedPreset = when {
+            clamped <= 75 -> BufferLatencyPreset.LOW_LATENCY
+            clamped <= 200 -> BufferLatencyPreset.BALANCED
+            else -> BufferLatencyPreset.SAFE
+        }
+        prefs.edit()
+            .putInt("target_buffer_ms", clamped)
+            .putString("buffer_preset", matchedPreset.name)
+            .apply()
+        _userPreferences.value = _userPreferences.value.copy(
+            targetBufferMs = clamped,
+            bufferPreset = matchedPreset
+        )
     }
 
     fun updateVolume(volume: Int) {

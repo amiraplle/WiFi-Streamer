@@ -78,6 +78,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.network.NetworkUtils
@@ -96,9 +97,8 @@ import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.StreamEmerald
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import com.example.ui.theme.TextTertiary
-
+ 
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
@@ -123,22 +123,16 @@ fun SettingsScreen(
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Streaming Settings",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary
-            )
-        }
+        Text(
+            text = "Streaming Settings",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = TextPrimary,
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
 
         // =========================================================================
-        // AUDIO CONFIGURATION (Premium Dropdowns Matching Example)
+        // AUDIO CONFIGURATION (Premium Dropdowns & Continuous Buffer Slider)
         // =========================================================================
         SettingsHeader(title = "AUDIO CONFIGURATION")
 
@@ -162,16 +156,127 @@ fun SettingsScreen(
 
                 HorizontalDivider(color = Color(0xFF22222E))
 
-                // Buffer Latency Preset Dropdown
-                StudioDropdown(
-                    label = "Target Buffer & Latency",
-                    icon = Icons.Outlined.Speed,
-                    selectedValue = prefs.bufferPreset,
-                    items = BufferLatencyPreset.values().toList(),
-                    itemTitle = { it.displayName },
-                    onItemSelected = { viewModel.updateBufferPreset(it) },
-                    testTag = "settings_buffer_preset"
-                )
+                // Target Buffer & Latency Slider (15ms - 300ms)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Speed,
+                                contentDescription = null,
+                                tint = Color(0xFF8E8E98),
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "TARGET BUFFER & LATENCY",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 11.sp,
+                                letterSpacing = 0.6.sp,
+                                color = Color(0xFF8E8E98)
+                            )
+                        }
+
+                        Surface(
+                            color = StreamEmerald.copy(alpha = 0.16f),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, StreamEmerald.copy(alpha = 0.45f))
+                        ) {
+                            Text(
+                                text = "${prefs.targetBufferMs} ms",
+                                color = StreamEmerald,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+
+                    val latencyDescription = when {
+                        prefs.targetBufferMs <= 40 -> "Ultra-Low Latency • Best for strong 5GHz Wi-Fi (<40ms)"
+                        prefs.targetBufferMs <= 90 -> "Low Latency • Fast response with light jitter shield"
+                        prefs.targetBufferMs <= 180 -> "Balanced • Absorbs UI touches, gestures & notifications"
+                        else -> "Rock-Solid • Maximum immunity against app switches & OS pauses"
+                    }
+
+                    Text(
+                        text = latencyDescription,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 11.sp,
+                        color = Color(0xFF8E8E98),
+                        modifier = Modifier.padding(start = 2.dp)
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("15ms", fontSize = 10.sp, color = TextSecondary)
+                        Slider(
+                            value = prefs.targetBufferMs.toFloat(),
+                            onValueChange = { viewModel.updateTargetBufferMs(it.toInt()) },
+                            valueRange = 15f..300f,
+                            steps = 56, // ~5ms step increments
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("settings_target_buffer_slider"),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color.White,
+                                activeTrackColor = StreamEmerald,
+                                inactiveTrackColor = Color(0xFF262634)
+                            )
+                        )
+                        Text("300ms", fontSize = 10.sp, color = TextSecondary)
+                    }
+
+                    // Quick Preset Shortcut Pills
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val quickPresets = listOf(
+                            "25 ms" to 25,
+                            "50 ms" to 50,
+                            "120 ms" to 120,
+                            "250 ms" to 250
+                        )
+                        quickPresets.forEach { (label, ms) ->
+                            val isSelected = prefs.targetBufferMs == ms
+                            Surface(
+                                color = if (isSelected) StreamEmerald.copy(alpha = 0.2f) else Color(0xFF14141E),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, if (isSelected) StreamEmerald else Color(0xFF282836)),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { viewModel.updateTargetBufferMs(ms) }
+                                    .testTag("buffer_preset_$ms")
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 10.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) StreamEmerald else TextSecondary,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(vertical = 5.dp)
+                                )
+                            }
+                        }
+                    }
+                }
 
                 HorizontalDivider(color = Color(0xFF22222E))
 
@@ -902,108 +1007,6 @@ fun SettingsScreen(
                                 )
                             )
                             Text("${prefs.stereoWidthPercent}%", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = StreamEmerald)
-                        }
-                    }
-                }
-
-                HorizontalDivider(color = Color(0xFF22222E))
-
-                // 8. 5-Band Equalizer Presets & Sliders
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    SettingItemHeader(
-                        icon = Icons.Outlined.Equalizer,
-                        label = "5-Band Graphic Equalizer"
-                    )
-
-                    // Presets
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        val presets = listOf(
-                            "Flat" to AudioDspEngine.PRESET_FLAT,
-                            "Bass" to AudioDspEngine.PRESET_BASS_BOOST,
-                            "Vocal" to AudioDspEngine.PRESET_VOCAL,
-                            "Acoustic" to AudioDspEngine.PRESET_ACOUSTIC,
-                            "Rock" to AudioDspEngine.PRESET_ROCK
-                        )
-                        presets.forEach { (name, gains) ->
-                            val isSelected = prefs.eqPresetName.equals(name, ignoreCase = true)
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = { viewModel.updateEqPreset(name, gains) },
-                                label = { Text(name, fontSize = 10.sp) },
-                                modifier = Modifier.testTag("settings_eq_preset_$name"),
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = StreamEmerald.copy(alpha = 0.2f),
-                                    selectedLabelColor = StreamEmerald
-                                )
-                            )
-                        }
-                    }
-
-                    // Bass & Treble Quick Boosters
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("Bass", fontSize = 10.sp, color = TextSecondary, modifier = Modifier.width(36.dp))
-                        Slider(
-                            value = prefs.bassBoostPercent.toFloat(),
-                            onValueChange = { viewModel.updateBassBoost(it.toInt()) },
-                            valueRange = 0f..100f,
-                            modifier = Modifier.weight(1f).testTag("settings_bass_boost_slider"),
-                            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = StreamEmerald, inactiveTrackColor = Color(0xFF262634))
-                        )
-                        Text("${prefs.bassBoostPercent}%", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.width(30.dp))
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("Treble", fontSize = 10.sp, color = TextSecondary, modifier = Modifier.width(36.dp))
-                        Slider(
-                            value = prefs.trebleClarityPercent.toFloat(),
-                            onValueChange = { viewModel.updateTrebleClarity(it.toInt()) },
-                            valueRange = 0f..100f,
-                            modifier = Modifier.weight(1f).testTag("settings_treble_clarity_slider"),
-                            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = StreamEmerald, inactiveTrackColor = Color(0xFF262634))
-                        )
-                        Text("${prefs.trebleClarityPercent}%", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.width(30.dp))
-                    }
-
-                    // 5 Bands Sliders
-                    val bandFrequencies = listOf("100 Hz", "300 Hz", "1 kHz", "3.5 kHz", "8 kHz")
-                    val currentGains = listOf(prefs.eqBand0, prefs.eqBand1, prefs.eqBand2, prefs.eqBand3, prefs.eqBand4)
-
-                    bandFrequencies.forEachIndexed { index, label ->
-                        val gain = currentGains[index]
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(label, fontSize = 10.sp, color = TextSecondary, modifier = Modifier.width(46.dp))
-                            Slider(
-                                value = gain,
-                                onValueChange = { viewModel.updateEqBand(index, it) },
-                                valueRange = -12f..12f,
-                                modifier = Modifier.weight(1f).testTag("settings_eq_band_$index"),
-                                colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = StreamEmerald, inactiveTrackColor = Color(0xFF262634))
-                            )
-                            Text(
-                                text = "${if (gain > 0) "+" else ""}${String.format("%.1f", gain)}",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (gain != 0f) StreamEmerald else TextSecondary,
-                                modifier = Modifier.width(36.dp)
-                            )
                         }
                     }
                 }

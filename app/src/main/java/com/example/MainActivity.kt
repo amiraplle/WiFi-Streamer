@@ -52,7 +52,6 @@ import com.example.ui.receivers.ReceiversViewModel
 import com.example.ui.settings.SettingsScreen
 import com.example.ui.settings.SettingsViewModel
 import com.example.ui.theme.C3StreamerTheme
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 
 class MainActivity : ComponentActivity() {
@@ -155,7 +154,7 @@ fun MainApp(
                     onScreenSelected = { screen ->
                         if (currentRoute == screen.route) return@StudioBottomNavigation
                         navController.navigate(screen.route) {
-                            popUpTo(Screen.Home.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
                                 saveState = true
                             }
                             launchSingleTop = true
@@ -191,17 +190,15 @@ fun MainApp(
                             launchSingleTop = true
                             restoreState = true
                         }
+                    },
+                    onNavigateToSettings = {
+                        navController.navigate(Screen.Settings.route) {
+                            launchSingleTop = true
+                        }
                     }
                 )
             }
             composable(Screen.Player.route) {
-                BackHandler {
-                    navController.navigate(Screen.Home.route) {
-                        popUpTo(Screen.Home.route) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                }
                 PlayerScreen(
                     viewModel = playerViewModel,
                     onNavigateToSettings = {
@@ -212,18 +209,11 @@ fun MainApp(
                 )
             }
             composable(Screen.Receivers.route) {
-                BackHandler {
-                    navController.navigate(Screen.Home.route) {
-                        popUpTo(Screen.Home.route) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                }
                 ReceiversScreen(
                     viewModel = receiversViewModel,
                     onReceiverSelected = {
                         navController.navigate(Screen.Home.route) {
-                            popUpTo(Screen.Home.route) { saveState = true }
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                             launchSingleTop = true
                             restoreState = true
                         }
@@ -231,13 +221,6 @@ fun MainApp(
                 )
             }
             composable(Screen.Settings.route) {
-                BackHandler {
-                    navController.navigate(Screen.Home.route) {
-                        popUpTo(Screen.Home.route) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                }
                 SettingsScreen(
                     viewModel = settingsViewModel
                 )

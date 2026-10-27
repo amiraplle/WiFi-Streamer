@@ -118,12 +118,14 @@ import com.example.ui.theme.StreamEmerald
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.WarningAmber
+import com.example.ui.components.DspModalBottomSheet
 
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
     onNavigateToReceivers: () -> Unit,
     onNavigateToPlayer: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -133,6 +135,8 @@ fun HomeScreen(
     val activeSafetyProcess by viewModel.activeSafetyProcess.collectAsState()
     val safetyNotice by viewModel.safetyNotice.collectAsState()
     val localIp = remember { NetworkUtils.getLocalIpAddress(context) ?: "Checking Wi-Fi..." }
+
+    var showDspSheet by remember { mutableStateOf(false) }
 
     val isPlayerTransmitting = playerUiState.playerState == com.example.model.PlayerState.PLAYING
 
@@ -995,167 +999,83 @@ fun HomeScreen(
         }
 
         // =========================================================================
-        // 4. IN-APP AUDIO DSP & EQUALIZER (Compact)
+        // 4. REAL-TIME AUDIOPHILE DSP TWEAKS (Tap for Easy Pop-up)
         // =========================================================================
         StudioCard(
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .clickable { showDspSheet = true }
+                .testTag("home_dsp_card")
         ) {
-            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(if (prefs.dspEnabled) StreamEmerald.copy(alpha = 0.2f) else Color(0xFF1E1E28)),
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Tune,
                             contentDescription = "DSP",
-                            tint = Color.White,
+                            tint = if (prefs.dspEnabled) StreamEmerald else Color.White,
                             modifier = Modifier.size(18.dp)
                         )
+                    }
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                         Text(
-                            text = "Audio DSP & Equalizer",
+                            text = "Audiophile DSP Engine",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary
                         )
+                        Text(
+                            text = if (prefs.dspEnabled) "Air Band • Bass Punch • Widener • Anti-Clip Limiter" else "64-bit float DSP engine bypassed",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (prefs.dspEnabled) StreamEmerald else TextSecondary,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
-                    StudioSwitch(
-                        checked = prefs.dspEnabled,
-                        onCheckedChange = { viewModel.setDspEnabled(it) },
-                        modifier = Modifier.testTag("dsp_master_switch")
-                    )
                 }
 
-
-
-                if (prefs.dspEnabled) {
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Bass Boost
+                // Tactile Status Pill Button
+                Surface(
+                    color = if (prefs.dspEnabled) StreamEmerald.copy(alpha = 0.16f) else Color(0xFF14141E),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, if (prefs.dspEnabled) StreamEmerald.copy(alpha = 0.6f) else Color(0xFF2A2A3A)),
+                    modifier = Modifier.clickable { showDspSheet = true }
+                ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
-                        Text(
-                            text = "Bass",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Medium,
-                            color = TextSecondary,
-                            modifier = Modifier.width(38.dp)
-                        )
-                        Slider(
-                            value = prefs.bassBoostPercent.toFloat(),
-                            onValueChange = { viewModel.setBassBoost(it.toInt()) },
-                            valueRange = 0f..100f,
-                            modifier = Modifier.weight(1f).testTag("bass_boost_slider"),
-                            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color(0xFF4A4A58), inactiveTrackColor = Color(0xFF22222A))
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(if (prefs.dspEnabled) StreamEmerald else Color(0xFF6E6E82))
                         )
                         Text(
-                            text = "${prefs.bassBoostPercent}%",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            modifier = Modifier.width(32.dp)
+                            text = if (prefs.dspEnabled) "DSP ACTIVE" else "DSP TWEAKS",
+                            color = if (prefs.dspEnabled) StreamEmerald else Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
                         )
-                    }
-
-                    // Treble Clarity
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "Treble",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Medium,
-                            color = TextSecondary,
-                            modifier = Modifier.width(38.dp)
-                        )
-                        Slider(
-                            value = prefs.trebleClarityPercent.toFloat(),
-                            onValueChange = { viewModel.setTrebleClarity(it.toInt()) },
-                            valueRange = 0f..100f,
-                            modifier = Modifier.weight(1f).testTag("treble_clarity_slider"),
-                            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color(0xFF4A4A58), inactiveTrackColor = Color(0xFF22222A))
-                        )
-                        Text(
-                            text = "${prefs.trebleClarityPercent}%",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            modifier = Modifier.width(32.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // 5-Band Presets
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        val presets = listOf(
-                            "Flat" to AudioDspEngine.PRESET_FLAT,
-                            "Bass" to AudioDspEngine.PRESET_BASS_BOOST,
-                            "Vocal" to AudioDspEngine.PRESET_VOCAL,
-                            "Acoustic" to AudioDspEngine.PRESET_ACOUSTIC,
-                            "Rock" to AudioDspEngine.PRESET_ROCK
-                        )
-                        presets.forEach { (name, gains) ->
-                            val isSelected = prefs.eqPresetName.equals(name, ignoreCase = true)
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = { viewModel.setEqPreset(name, gains) },
-                                label = { Text(name, fontSize = 10.sp) },
-                                modifier = Modifier.testTag("eq_preset_$name"),
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Color(0xFF252532),
-                                    selectedLabelColor = Color.White
-                                )
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    // 5 Bands Sliders
-                    val bandFrequencies = listOf("100", "300", "1k", "3.5k", "8k")
-                    val currentGains = listOf(prefs.eqBand0, prefs.eqBand1, prefs.eqBand2, prefs.eqBand3, prefs.eqBand4)
-
-                    bandFrequencies.forEachIndexed { index, label ->
-                        val gain = currentGains[index]
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = label,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Medium,
-                                color = TextSecondary,
-                                modifier = Modifier.width(32.dp)
-                            )
-                            Slider(
-                                value = gain,
-                                onValueChange = { viewModel.setEqBand(index, it) },
-                                valueRange = -12f..12f,
-                                modifier = Modifier.weight(1f).testTag("eq_band_$index"),
-                                colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color(0xFF4A4A58), inactiveTrackColor = Color(0xFF22222A))
-                            )
-                            Text(
-                                text = "${if (gain > 0) "+" else ""}${gain.toInt()}",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                modifier = Modifier.width(28.dp)
-                            )
-                        }
                     }
                 }
             }
@@ -1327,6 +1247,27 @@ fun HomeScreen(
         }
 
         Spacer(modifier = Modifier.height(8.dp))
+    }
+
+    if (showDspSheet) {
+        DspModalBottomSheet(
+            onDismiss = { showDspSheet = false },
+            prefs = prefs,
+            onDspEnabledChange = { viewModel.setDspEnabled(it) },
+            onSoftLimiterChange = { viewModel.setSoftLimiter(it) },
+            onLimiterTrimChange = { viewModel.setLimiterTrim(it) },
+            onAirBandEnabledChange = { viewModel.setAirBandEnabled(it) },
+            onAirBandGainChange = { viewModel.setAirBandGain(it) },
+            onBassPunchEnabledChange = { viewModel.setBassPunchEnabled(it) },
+            onBassPunchIntensityChange = { viewModel.setBassPunchIntensity(it) },
+            onSubBassCutChange = { viewModel.setSubBassCut(it) },
+            onStereoWidenerChange = { viewModel.setStereoWidenerEnabled(it) },
+            onStereoWidthChange = { viewModel.setStereoWidth(it) },
+            onOpenFullSettings = {
+                showDspSheet = false
+                onNavigateToSettings()
+            }
+        )
     }
 }
 

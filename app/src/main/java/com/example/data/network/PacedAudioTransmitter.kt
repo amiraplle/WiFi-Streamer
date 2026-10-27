@@ -56,12 +56,17 @@ class PacedAudioTransmitter(
         }
     }
 
-    fun setTargetLatencyPreset(preset: com.example.model.BufferLatencyPreset, format: AudioStreamFormat) {
-        val bytesPerSec = format.sampleRate.toLong() * format.frameSizeBytes
-        val calculated = ((bytesPerSec * preset.durationMs) / 1000).toInt()
+    fun setTargetLatencyMs(targetMs: Int, format: AudioStreamFormat) {
+        val clampedMs = targetMs.coerceIn(15, 300)
+        val bytesPerSec = (format.sampleRate.toLong() * format.frameSizeBytes).coerceAtLeast(1L)
+        val calculated = ((bytesPerSec * clampedMs) / 1000).toInt()
         val packetSize = getPacketSizeForFormat(format)
-        targetPreRollBytes = calculated.coerceIn(packetSize * 4, 64 * 1024)
-        Log.i(TAG, "Configured target jitter buffer pre-roll: $targetPreRollBytes bytes (${preset.durationMs}ms)")
+        targetPreRollBytes = calculated.coerceIn(packetSize * 2, 64 * 1024)
+        Log.i(TAG, "Configured target jitter buffer pre-roll: $targetPreRollBytes bytes (${clampedMs}ms)")
+    }
+
+    fun setTargetLatencyPreset(preset: com.example.model.BufferLatencyPreset, format: AudioStreamFormat) {
+        setTargetLatencyMs(preset.durationMs, format)
     }
 
     fun updateFormat(newFormat: AudioStreamFormat) {

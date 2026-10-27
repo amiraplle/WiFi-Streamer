@@ -1257,12 +1257,14 @@ class LocalAudioPlayerManager(
                     val lastIdx = prefs.getInt("last_track_index", 0).coerceIn(0, restored.size - 1)
                     val targetTrack = restored.getOrNull(lastIdx) ?: restored.first()
 
+                    val initialFmt = "${targetTrack.formatDisplay} • ${targetTrack.sampleRate / 1000.0} kHz • ${if (targetTrack.channels == 2) "Stereo" else "Mono"}"
                     withContext(Dispatchers.Main) {
                         _uiState.value = _uiState.value.copy(
                             playlist = restored,
                             currentIndex = lastIdx,
                             currentTrack = targetTrack,
-                            durationMs = targetTrack.durationMs
+                            durationMs = targetTrack.durationMs,
+                            sourceFormatInfo = initialFmt
                         )
                     }
                     Log.i(TAG, "Restored ${restored.size} tracks from persistent storage")
