@@ -1284,14 +1284,14 @@ fun TelemetryTile(
             .shadow(
                 elevation = 4.dp,
                 shape = RoundedCornerShape(16.dp),
-                ambientColor = Color(0x30A0A0B8),
-                spotColor = Color(0x20FFFFFF)
+                ambientColor = Color(0x66000000),
+                spotColor = Color(0x18FFFFFF)
             ),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF131318)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0C0D13)),
         border = BorderStroke(
             1.2.dp,
             Brush.verticalGradient(
-                listOf(Color(0xFF3E3E50), Color(0xFF22222E))
+                listOf(Color(0xFF565A6E), Color(0xFF1C1E26))
             )
         ),
         shape = RoundedCornerShape(16.dp)

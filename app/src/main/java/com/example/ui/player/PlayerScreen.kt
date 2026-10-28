@@ -103,6 +103,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -114,7 +115,14 @@ import com.example.model.PlayerState
 import com.example.ui.theme.DarkBackground
 import com.example.ui.theme.DarkCardBorder
 import com.example.ui.theme.DarkSurface
+import com.example.ui.theme.DarkSurfaceElevated
 import com.example.ui.theme.ErrorCoral
+import com.example.ui.theme.MetallicGray
+import com.example.ui.theme.MetallicTrackInactive
+import com.example.ui.theme.ShinyMetallicBottom
+import com.example.ui.theme.ShinyMetallicTop
+import com.example.ui.theme.ShinySilver
+import com.example.ui.theme.ShinySilverDark
 import com.example.ui.theme.StreamEmerald
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
@@ -257,55 +265,153 @@ fun PlayerScreen(
         }
 
         // =========================================================================
-        // 2. REDESIGNED COMPACT & ATTRACTIVE NOW PLAYING CARD
+        // 2. HIGH-TECH PRECISION NOW PLAYING CARD (DEEP AMOLED & SHINY METALLIC)
         // =========================================================================
         item {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .shadow(
+                        elevation = 8.dp,
+                        shape = RoundedCornerShape(22.dp),
+                        ambientColor = Color(0x66000000),
+                        spotColor = Color(0x18FFFFFF)
+                    )
                     .testTag("player_hero_card"),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(22.dp),
                 colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                border = BorderStroke(1.dp, if (isPlaying) StreamEmerald.copy(alpha = 0.35f) else DarkCardBorder)
+                border = BorderStroke(
+                    1.2.dp,
+                    Brush.verticalGradient(
+                        listOf(
+                            if (isPlaying) Color(0xFF6E7288) else Color(0xFF4C5064),
+                            Color(0xFF181A22)
+                        )
+                    )
+                )
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Top Section: Compact 74dp Album Artwork + Track Information
+                    // Top HUD: Digital Source Readout + Direct Output Badge
+                    val trackCodecDisplay = if (currentTrack != null) {
+                        if (uiState.sourceFormatInfo.isNotBlank() && uiState.sourceFormatInfo != "No audio loaded") {
+                            uiState.sourceFormatInfo
+                        } else {
+                            "${currentTrack.formatDisplay} • ${(currentTrack.sampleRate / 1000.0)}kHz • ${if (currentTrack.channels == 2) "Stereo" else "Mono"}"
+                        }
+                    } else {
+                        "NO TRACK LOADED"
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Left: Source Format Pill
+                        Surface(
+                            color = Color(0xFF10121A),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, Color(0xFF26293A))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.GraphicEq,
+                                    contentDescription = null,
+                                    tint = if (isPlaying) StreamEmerald else ShinySilverDark,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = trackCodecDisplay.uppercase(),
+                                    color = if (isPlaying) ShinySilver else TextSecondary,
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 190.dp)
+                                )
+                            }
+                        }
+
+                        // Right: Live Direct Output Status
+                        Surface(
+                            color = if (isPlaying) StreamEmerald.copy(alpha = 0.12f) else Color(0xFF10121A),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isPlaying) StreamEmerald.copy(alpha = 0.45f) else Color(0xFF26293A)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isPlaying) StreamEmerald else Color(0xFF6A6E80))
+                                )
+                                Text(
+                                    text = if (isPlaying) "PCM5102A LIVE" else "I2S STANDBY",
+                                    color = if (isPlaying) StreamEmerald else TextSecondary,
+                                    fontSize = 9.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.6.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // Main Center Section: 76dp Chamfered Artwork + Track Typography
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Compact Album Artwork (74dp x 74dp)
+                        // Album Artwork Box (76dp x 76dp) with Shiny Metallic Bezel Frame
                         val albumArtBitmap = remember(currentTrack?.id, currentTrack?.artworkBytes) {
                             ArtworkCache.getOrDecode(currentTrack?.id.orEmpty(), currentTrack?.artworkBytes)
                         }
 
                         val artScale by animateFloatAsState(
-                            targetValue = if (isPlaying) 1.0f else 0.96f,
-                            animationSpec = tween(300, easing = FastOutSlowInEasing),
+                            targetValue = if (isPlaying) 1.0f else 0.97f,
+                            animationSpec = tween(280, easing = FastOutSlowInEasing),
                             label = "artScale"
                         )
 
                         Box(
                             modifier = Modifier
-                                .size(74.dp)
+                                .size(76.dp)
                                 .scale(artScale)
                                 .shadow(
                                     elevation = if (isPlaying) 10.dp else 4.dp,
-                                    shape = RoundedCornerShape(12.dp),
-                                    ambientColor = if (isPlaying) StreamEmerald.copy(alpha = 0.4f) else Color.Black,
-                                    spotColor = if (isPlaying) StreamEmerald.copy(alpha = 0.5f) else Color.Black
+                                    shape = RoundedCornerShape(14.dp),
+                                    ambientColor = Color(0x66000000),
+                                    spotColor = Color(0x20FFFFFF)
                                 )
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFF14141E))
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color(0xFF0F1017))
                                 .border(
-                                    1.dp,
-                                    if (isPlaying) StreamEmerald.copy(alpha = 0.5f) else Color(0xFF282838),
-                                    RoundedCornerShape(12.dp)
+                                    1.5.dp,
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            if (isPlaying) Color(0xFF6E7288) else Color(0xFF484C5E),
+                                            Color(0xFF1A1C24)
+                                        )
+                                    ),
+                                    RoundedCornerShape(14.dp)
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
@@ -323,9 +429,9 @@ fun PlayerScreen(
                                         .background(
                                             Brush.linearGradient(
                                                 colors = listOf(
-                                                    Color(0xFF262638),
-                                                    Color(0xFF151520),
-                                                    if (isPlaying) StreamEmerald.copy(alpha = 0.18f) else Color(0xFF1A1A26)
+                                                    Color(0xFF222430),
+                                                    Color(0xFF101118),
+                                                    if (isPlaying) Color(0xFF1C202C) else Color(0xFF14151E)
                                                 )
                                             )
                                         ),
@@ -333,27 +439,28 @@ fun PlayerScreen(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Outlined.Audiotrack,
-                                        contentDescription = "Music Artwork",
-                                        tint = if (isPlaying) StreamEmerald else Color(0xFFA0A0B8),
-                                        modifier = Modifier.size(28.dp)
+                                        contentDescription = "Audio Artwork",
+                                        tint = if (isPlaying) ShinySilver else Color(0xFF787C90),
+                                        modifier = Modifier.size(30.dp)
                                     )
                                 }
                             }
 
-                            // Distinct Format Badge Overlay in Bottom-End (e.g. OPUS, FLAC)
+                            // Distinct Codec Badge Overlay in Bottom-End
                             val codecName = currentTrack?.formatDisplay ?: "AUDIO"
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.BottomEnd)
                                     .padding(4.dp)
-                                    .background(Color.Black.copy(alpha = 0.85f), RoundedCornerShape(4.dp))
-                                    .border(0.5.dp, StreamEmerald.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                                    .background(Color.Black.copy(alpha = 0.88f), RoundedCornerShape(4.dp))
+                                    .border(0.6.dp, Color(0xFF52566A), RoundedCornerShape(4.dp))
                                     .padding(horizontal = 4.dp, vertical = 1.dp)
                             ) {
                                 Text(
                                     text = codecName,
-                                    color = StreamEmerald,
+                                    color = ShinySilver,
                                     fontSize = 8.sp,
+                                    fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
                                     softWrap = false
@@ -364,30 +471,31 @@ fun PlayerScreen(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .background(Color.Black.copy(alpha = 0.65f)),
+                                        .background(Color.Black.copy(alpha = 0.7f)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(24.dp),
                                         strokeWidth = 2.dp,
-                                        color = StreamEmerald
+                                        color = ShinySilver
                                     )
                                 }
                             }
                         }
 
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(14.dp))
 
-                        // Title, Artist, & Format Specs
+                        // Title, Artist & Monospace Track Meta
                         Column(
                             modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
                                 text = currentTrack?.title ?: "Select a track to play",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = TextPrimary,
+                                color = Color.White,
+                                fontSize = 16.sp,
                                 maxLines = 1,
                                 softWrap = false,
                                 overflow = TextOverflow.Ellipsis
@@ -395,40 +503,33 @@ fun PlayerScreen(
                             Text(
                                 text = currentTrack?.artist ?: "Tap any song from the queue below",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary,
+                                color = ShinySilverDark,
+                                fontSize = 13.sp,
                                 maxLines = 1,
                                 softWrap = false,
                                 overflow = TextOverflow.Ellipsis
                             )
 
-                            // Specs & Codec Pill
-                            val trackCodecDisplay = if (currentTrack != null) {
-                                if (uiState.sourceFormatInfo.isNotBlank() && uiState.sourceFormatInfo != "No audio loaded") {
-                                    uiState.sourceFormatInfo
-                                } else {
-                                    "${currentTrack.formatDisplay} • ${currentTrack.sampleRate / 1000.0} kHz • ${if (currentTrack.channels == 2) "Stereo" else "Mono"}"
-                                }
-                            } else {
-                                "No track selected"
-                            }
+                            // Monospace Quick Audio Meta Spec
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier.padding(top = 2.dp)
                             ) {
                                 Surface(
-                                    color = Color(0xFF1B1B26),
+                                    color = Color(0xFF13151E),
                                     shape = RoundedCornerShape(6.dp),
-                                    border = BorderStroke(1.dp, Color(0xFF2C2C3E))
+                                    border = BorderStroke(1.dp, Color(0xFF242736))
                                 ) {
+                                    val durationStr = if (totalDurationMs > 1L) formatDuration(totalDurationMs) else "--:--"
                                     Text(
-                                        text = trackCodecDisplay,
-                                        color = Color(0xFFB0B0C4),
+                                        text = "${if (currentTrack != null) currentTrack.formatDisplay else "PCM"} • $durationStr",
+                                        color = MetallicGray,
                                         fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
                                         fontWeight = FontWeight.Medium,
                                         maxLines = 1,
                                         softWrap = false,
-                                        overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }
@@ -436,8 +537,11 @@ fun PlayerScreen(
                         }
                     }
 
-                    // Seek Slider & Timers (Compact, tight spacing)
-                    Column(modifier = Modifier.fillMaxWidth()) {
+                    // Laser-Sharp Seek Slider & Tabular Monospace Timestamps
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
                         Slider(
                             value = sliderValue,
                             onValueChange = { fraction ->
@@ -450,12 +554,12 @@ fun PlayerScreen(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(22.dp)
+                                .height(20.dp)
                                 .testTag("player_seek_slider"),
                             colors = SliderDefaults.colors(
-                                thumbColor = Color.White,
-                                activeTrackColor = StreamEmerald,
-                                inactiveTrackColor = Color(0xFF2A2A38)
+                                thumbColor = Color(0xFFECEEF6),
+                                activeTrackColor = if (isPlaying) StreamEmerald else ShinySilver,
+                                inactiveTrackColor = MetallicTrackInactive
                             )
                         )
                         Row(
@@ -468,35 +572,39 @@ fun PlayerScreen(
                                 text = formatDuration(displayPositionMs),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = TextSecondary,
-                                fontSize = 10.sp
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
                             )
                             Text(
                                 text = formatDuration(totalDurationMs),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = TextSecondary,
-                                fontSize = 10.sp
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
 
-                    // Compact Transport Controls (Shuffle, Prev, Play/Pause, Stop, Next, Repeat)
+                    // Precision Transport Controls (Shuffle, Prev, Hero Play/Pause, Stop, Next, Repeat)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Shuffle Toggle
                         IconButton(
                             onClick = { viewModel.toggleShuffle() },
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(40.dp)
                                 .testTag("player_shuffle_button")
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Shuffle,
                                 contentDescription = "Shuffle",
-                                tint = if (uiState.isShuffle) StreamEmerald else Color(0xFF6E6E82),
-                                modifier = Modifier.size(18.dp)
+                                tint = if (uiState.isShuffle) ShinySilver else Color(0xFF5E6274),
+                                modifier = Modifier.size(19.dp)
                             )
                         }
 
@@ -504,38 +612,50 @@ fun PlayerScreen(
                         IconButton(
                             onClick = { viewModel.playPrevious() },
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(44.dp)
                                 .testTag("player_previous_button")
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.SkipPrevious,
                                 contentDescription = "Previous",
-                                tint = Color.White,
-                                modifier = Modifier.size(24.dp)
+                                tint = ShinySilver,
+                                modifier = Modifier.size(26.dp)
                             )
                         }
 
-                        // Tactile Hero Play / Pause Button (48dp)
+                        // Tactile Jewel Play / Pause Button (52dp)
                         val playBtnScale by animateFloatAsState(
-                            targetValue = if (isPlaying) 1.05f else 1.0f,
-                            animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
+                            targetValue = if (isPlaying) 1.04f else 1.0f,
+                            animationSpec = spring(dampingRatio = 0.65f, stiffness = 420f),
                             label = "playBtnScale"
                         )
                         Box(
                             modifier = Modifier
-                                .size(48.dp)
+                                .size(52.dp)
                                 .scale(playBtnScale)
                                 .shadow(
                                     elevation = if (isPlaying) 12.dp else 6.dp,
                                     shape = CircleShape,
-                                    ambientColor = if (isPlaying) StreamEmerald else Color.White,
-                                    spotColor = if (isPlaying) StreamEmerald else Color.White
+                                    ambientColor = Color(0x66000000),
+                                    spotColor = if (isPlaying) StreamEmerald.copy(alpha = 0.5f) else Color(0x33FFFFFF)
                                 )
                                 .clip(CircleShape)
-                                .background(if (isPlaying) StreamEmerald else Color.White)
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            if (isPlaying) StreamEmerald else Color(0xFFF2F4FA),
+                                            if (isPlaying) Color(0xFF00C853) else Color(0xFFD6D9E6)
+                                        )
+                                    )
+                                )
+                                .border(
+                                    1.2.dp,
+                                    if (isPlaying) Color(0xFF80FFA4) else Color(0xFFFFFFFF),
+                                    CircleShape
+                                )
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
-                                    indication = ripple(color = Color.Black.copy(alpha = 0.25f))
+                                    indication = ripple(color = Color.Black.copy(alpha = 0.3f))
                                 ) { viewModel.togglePlayPause() }
                                 .testTag("player_play_pause_button"),
                             contentAlignment = Alignment.Center
@@ -543,21 +663,21 @@ fun PlayerScreen(
                             Icon(
                                 imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                                 contentDescription = if (isPlaying) "Pause" else "Play",
-                                tint = Color.Black,
-                                modifier = Modifier.size(26.dp)
+                                tint = Color(0xFF08090C),
+                                modifier = Modifier.size(28.dp)
                             )
                         }
 
-                        // Dedicated Stop Button
+                        // Dedicated Hardware Stop Button (38dp)
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(38.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF241418))
-                                .border(1.dp, Color(0xFF55222D), CircleShape)
+                                .background(Color(0xFF1E1216))
+                                .border(1.dp, Color(0xFF4C1E26), CircleShape)
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
-                                    indication = ripple(color = Color(0xFFFF5252).copy(alpha = 0.25f))
+                                    indication = ripple(color = Color(0xFFFF5252).copy(alpha = 0.3f))
                                 ) { viewModel.stopPlayback() }
                                 .testTag("player_stop_button"),
                             contentAlignment = Alignment.Center
@@ -565,7 +685,7 @@ fun PlayerScreen(
                             Icon(
                                 imageVector = Icons.Filled.Stop,
                                 contentDescription = "Stop",
-                                tint = Color(0xFFFF5252),
+                                tint = Color(0xFFEF5350),
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -574,14 +694,14 @@ fun PlayerScreen(
                         IconButton(
                             onClick = { viewModel.playNext() },
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(44.dp)
                                 .testTag("player_next_button")
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.SkipNext,
                                 contentDescription = "Next",
-                                tint = Color.White,
-                                modifier = Modifier.size(24.dp)
+                                tint = ShinySilver,
+                                modifier = Modifier.size(26.dp)
                             )
                         }
 
@@ -589,7 +709,7 @@ fun PlayerScreen(
                         IconButton(
                             onClick = { viewModel.toggleRepeat() },
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(40.dp)
                                 .testTag("player_repeat_button")
                         ) {
                             val icon = when (uiState.repeatMode) {
@@ -599,13 +719,13 @@ fun PlayerScreen(
                             Icon(
                                 imageVector = icon,
                                 contentDescription = "Repeat",
-                                tint = if (uiState.repeatMode != PlayerRepeatMode.OFF) StreamEmerald else Color(0xFF6E6E82),
-                                modifier = Modifier.size(18.dp)
+                                tint = if (uiState.repeatMode != PlayerRepeatMode.OFF) ShinySilver else Color(0xFF5E6274),
+                                modifier = Modifier.size(19.dp)
                             )
                         }
                     }
 
-                    // Bottom In-Card Sub-Bar: ESP32 Target Format Selector + Real-Time DSP Button
+                    // Bottom In-Card Hardware Matrix: Target Output Format + Real-Time DSP Engine
                     var formatMenuExpanded by remember { mutableStateOf(false) }
 
                     Row(
@@ -613,11 +733,17 @@ fun PlayerScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // ESP32 Target I2S Format Selector
                         Box(modifier = Modifier.weight(1f)) {
                             Surface(
-                                color = Color(0xFF13131C),
+                                color = Color(0xFF10121A),
                                 shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, StreamEmerald.copy(alpha = 0.35f)),
+                                border = BorderStroke(
+                                    1.2.dp,
+                                    Brush.verticalGradient(
+                                        listOf(Color(0xFF484C60), Color(0xFF1C1E28))
+                                    )
+                                ),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(10.dp))
@@ -625,7 +751,7 @@ fun PlayerScreen(
                                     .testTag("player_format_selector_badge")
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
@@ -637,13 +763,14 @@ fun PlayerScreen(
                                         Icon(
                                             imageVector = Icons.Outlined.Podcasts,
                                             contentDescription = null,
-                                            tint = StreamEmerald,
+                                            tint = if (isPlaying) StreamEmerald else ShinySilver,
                                             modifier = Modifier.size(14.dp)
                                         )
                                         Text(
                                             text = "ESP32: ${uiState.outputFormatInfo}",
-                                            color = StreamEmerald,
+                                            color = if (isPlaying) StreamEmerald else ShinySilver,
                                             fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace,
                                             fontWeight = FontWeight.Bold,
                                             maxLines = 1,
                                             softWrap = false,
@@ -653,7 +780,7 @@ fun PlayerScreen(
                                     Icon(
                                         imageVector = Icons.Outlined.ArrowDropDown,
                                         contentDescription = "Select Format",
-                                        tint = StreamEmerald,
+                                        tint = ShinySilver,
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
@@ -663,9 +790,17 @@ fun PlayerScreen(
                                 expanded = formatMenuExpanded,
                                 onDismissRequest = { formatMenuExpanded = false },
                                 modifier = Modifier
-                                    .background(Color(0xFF16161E))
-                                    .border(BorderStroke(1.dp, Color(0xFF2E2E3E)), RoundedCornerShape(12.dp))
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFF10121A))
+                                    .border(
+                                        BorderStroke(
+                                            1.2.dp,
+                                            Brush.verticalGradient(
+                                                listOf(Color(0xFF52566A), Color(0xFF20222E))
+                                            )
+                                        ),
+                                        RoundedCornerShape(14.dp)
+                                    )
+                                    .clip(RoundedCornerShape(14.dp))
                             ) {
                                 viewModel.availableFormats.forEach { format ->
                                     val isSelected = uiState.outputFormatInfo.contains("${format.sampleRate / 1000.0}") && uiState.outputFormatInfo.contains("${format.bitDepth}-bit")
@@ -676,12 +811,13 @@ fun PlayerScreen(
                                                     text = format.displayName,
                                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                                     color = if (isSelected) StreamEmerald else Color.White,
-                                                    fontSize = 12.sp
+                                                    fontSize = 12.sp,
+                                                    fontFamily = FontFamily.Monospace
                                                 )
                                                 Text(
                                                     text = format.dacCompatibility,
                                                     fontSize = 10.sp,
-                                                    color = Color(0xFF888898)
+                                                    color = Color(0xFF888B9C)
                                                 )
                                             }
                                         },
@@ -694,31 +830,40 @@ fun PlayerScreen(
                             }
                         }
 
-                        // Prominent Real-Time DSP Button in Player Card
+                        // Real-Time DSP Engine Button
                         Surface(
-                            color = if (prefs.dspEnabled) StreamEmerald.copy(alpha = 0.16f) else Color(0xFF14141E),
+                            color = if (prefs.dspEnabled) StreamEmerald.copy(alpha = 0.14f) else Color(0xFF10121A),
                             shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, if (prefs.dspEnabled) StreamEmerald.copy(alpha = 0.6f) else Color(0xFF2A2A3A)),
+                            border = BorderStroke(
+                                1.2.dp,
+                                Brush.verticalGradient(
+                                    listOf(
+                                        if (prefs.dspEnabled) StreamEmerald.copy(alpha = 0.6f) else Color(0xFF484C60),
+                                        Color(0xFF1C1E28)
+                                    )
+                                )
+                            ),
                             modifier = Modifier
                                 .clip(RoundedCornerShape(10.dp))
                                 .clickable { showDspSheet = true }
                                 .testTag("player_dsp_badge_button")
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Outlined.Tune,
                                     contentDescription = "Real-Time DSP",
-                                    tint = if (prefs.dspEnabled) StreamEmerald else Color.White,
+                                    tint = if (prefs.dspEnabled) StreamEmerald else ShinySilver,
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Text(
                                     text = if (prefs.dspEnabled) "DSP ACTIVE" else "DSP TWEAKS",
-                                    color = if (prefs.dspEnabled) StreamEmerald else Color.White,
+                                    color = if (prefs.dspEnabled) StreamEmerald else ShinySilver,
                                     fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
@@ -729,7 +874,7 @@ fun PlayerScreen(
         }
 
         // =========================================================================
-        // 3. ACTION BUTTONS ROW (PROMINENTLY PLACED DIRECTLY BELOW NOW PLAYING CARD)
+        // 3. HIGH-TECH ACTION BUTTONS ROW (ADD FILES & IMPORT FOLDER)
         // =========================================================================
         item {
             Row(
@@ -742,7 +887,7 @@ fun PlayerScreen(
                 Surface(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .clickable {
                             pickAudioLauncher.launch(
                                 arrayOf(
@@ -756,26 +901,32 @@ fun PlayerScreen(
                             )
                         }
                         .testTag("add_files_button"),
-                    color = Color(0xFF1B1B27),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Color(0xFF2F2F44))
+                    color = Color(0xFF0C0D14),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(
+                        1.2.dp,
+                        Brush.verticalGradient(
+                            listOf(Color(0xFF4C5064), Color(0xFF1A1C24))
+                        )
+                    )
                 ) {
                     Row(
-                        modifier = Modifier.padding(vertical = 12.dp, horizontal = 10.dp),
+                        modifier = Modifier.padding(vertical = 12.dp, horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Add,
                             contentDescription = null,
-                            tint = StreamEmerald,
+                            tint = ShinySilver,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "Add Audio Files",
-                            color = Color.White,
+                            color = ShinySilver,
                             fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             softWrap = false
@@ -787,7 +938,7 @@ fun PlayerScreen(
                 Surface(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .clickable {
                             try {
                                 pickFolderLauncher.launch(null)
@@ -796,26 +947,32 @@ fun PlayerScreen(
                             }
                         }
                         .testTag("add_folder_button"),
-                    color = Color(0xFF1B1B27),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Color(0xFF2F2F44))
+                    color = Color(0xFF0C0D14),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(
+                        1.2.dp,
+                        Brush.verticalGradient(
+                            listOf(Color(0xFF4C5064), Color(0xFF1A1C24))
+                        )
+                    )
                 ) {
                     Row(
-                        modifier = Modifier.padding(vertical = 12.dp, horizontal = 10.dp),
+                        modifier = Modifier.padding(vertical = 12.dp, horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.FolderOpen,
                             contentDescription = null,
-                            tint = StreamEmerald,
+                            tint = ShinySilver,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "Import Folder",
-                            color = Color.White,
+                            color = ShinySilver,
                             fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             softWrap = false
@@ -826,76 +983,63 @@ fun PlayerScreen(
         }
 
         // =========================================================================
-        // 4. QUEUE HEADER & PLAYLIST SECTION (With Folder Sync & Rescan)
+        // 4. HIGH-TECH QUEUE HEADER & PLAYLIST SECTION (ZERO WRAPPING)
         // =========================================================================
         item {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                    .padding(horizontal = 2.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                // Top Header Row: Clean title + track count pill on left, actions on right
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
-                        modifier = Modifier.weight(1f),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "Playlist Queue (${uiState.playlist.size})",
+                            text = "PLAYLIST QUEUE",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
-                            color = TextPrimary,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            letterSpacing = 0.8.sp,
                             maxLines = 1,
                             softWrap = false
                         )
 
-                        if (savedFolder != null) {
-                            Surface(
-                                color = Color(0xFF1E1E28),
-                                shape = RoundedCornerShape(6.dp),
-                                border = BorderStroke(1.dp, Color(0xFF2E2E3E))
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.FolderOpen,
-                                        contentDescription = null,
-                                        tint = StreamEmerald,
-                                        modifier = Modifier.size(11.dp)
-                                    )
-                                    Text(
-                                        text = savedFolder ?: "",
-                                        color = StreamEmerald,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.widthIn(max = 95.dp)
-                                    )
-                                }
-                            }
+                        Surface(
+                            color = Color(0xFF12141E),
+                            shape = RoundedCornerShape(6.dp),
+                            border = BorderStroke(1.dp, Color(0xFF242738))
+                        ) {
+                            Text(
+                                text = "${uiState.playlist.size} TRACKS",
+                                color = MetallicGray,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
                         }
                     }
 
+                    // Non-wrapping Action Buttons with Dedicated Spacing
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Manual Rescan Button (🔄)
+                        // Manual Rescan Button
                         if (savedFolder != null) {
                             Surface(
-                                color = Color(0xFF1A1A22),
+                                color = Color(0xFF10121A),
                                 shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(1.dp, Color(0xFF2C2C3C)),
+                                border = BorderStroke(1.dp, Color(0xFF282C3C)),
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
                                     .clickable(enabled = !isRescanning) {
@@ -910,13 +1054,13 @@ fun PlayerScreen(
                                     .testTag("rescan_folder_button")
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     if (isRescanning) {
                                         CircularProgressIndicator(
-                                            modifier = Modifier.size(11.dp),
+                                            modifier = Modifier.size(12.dp),
                                             color = StreamEmerald,
                                             strokeWidth = 1.5.dp
                                         )
@@ -925,13 +1069,14 @@ fun PlayerScreen(
                                             imageVector = Icons.Outlined.Sync,
                                             contentDescription = "Rescan Folder",
                                             tint = StreamEmerald,
-                                            modifier = Modifier.size(12.dp)
+                                            modifier = Modifier.size(13.dp)
                                         )
                                     }
                                     Text(
                                         text = if (isRescanning) "Scanning…" else "Rescan",
                                         color = StreamEmerald,
-                                        fontSize = 10.sp,
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
                                         fontWeight = FontWeight.SemiBold,
                                         maxLines = 1,
                                         softWrap = false
@@ -940,37 +1085,81 @@ fun PlayerScreen(
                             }
                         }
 
+                        // Clear Queue Button (Guaranteed never to wrap)
                         if (uiState.playlist.isNotEmpty()) {
                             Surface(
-                                color = Color(0xFF1A1A22),
+                                color = Color(0xFF181014),
                                 shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(1.dp, Color(0xFF2C2C3C)),
+                                border = BorderStroke(1.dp, Color(0xFF381A20)),
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
                                     .clickable { viewModel.clearQueue() }
                                     .testTag("clear_queue_button")
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Outlined.DeleteOutline,
                                         contentDescription = "Clear Queue",
-                                        tint = TextSecondary,
-                                        modifier = Modifier.size(12.dp)
+                                        tint = Color(0xFFEF5350),
+                                        modifier = Modifier.size(13.dp)
                                     )
                                     Text(
                                         text = "Clear",
-                                        color = TextSecondary,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFFEF5350),
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.SemiBold,
                                         maxLines = 1,
                                         softWrap = false
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+
+                // Dedicated Synced Folder Info Strip (Full-width, zero conflict with actions)
+                if (savedFolder != null) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = Color(0xFF0F1118),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, Color(0xFF222534))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 9.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.FolderOpen,
+                                contentDescription = null,
+                                tint = StreamEmerald,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "Synced: ${savedFolder ?: ""}",
+                                color = MetallicGray,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(5.dp)
+                                    .clip(CircleShape)
+                                    .background(StreamEmerald)
+                            )
                         }
                     }
                 }
@@ -1085,11 +1274,12 @@ private fun TrackItemRow(
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .testTag("track_item_$index"),
-        color = if (isCurrent) Color(0xFF1E1E2A) else Color(0xFF121217),
+        color = if (isCurrent) Color(0xFF12141D) else Color(0xFF090A0F),
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(
             1.dp,
-            if (isCurrent) StreamEmerald.copy(alpha = 0.5f) else Color(0xFF22222E)
+            if (isCurrent) Brush.verticalGradient(listOf(Color(0xFF6E7288), Color(0xFF2E3242)))
+            else Brush.verticalGradient(listOf(Color(0xFF242734), Color(0xFF161822)))
         )
     ) {
         Row(
@@ -1112,10 +1302,10 @@ private fun TrackItemRow(
                     modifier = Modifier
                         .size(38.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(if (isCurrent) StreamEmerald.copy(alpha = 0.2f) else Color(0xFF1A1A22))
+                        .background(if (isCurrent) Color(0xFF1A1C28) else Color(0xFF111218))
                         .border(
                             1.dp,
-                            if (isCurrent) StreamEmerald.copy(alpha = 0.4f) else Color(0xFF282834),
+                            if (isCurrent) Color(0xFF5A5E72) else Color(0xFF222532),
                             RoundedCornerShape(8.dp)
                         ),
                     contentAlignment = Alignment.Center
@@ -1154,8 +1344,9 @@ private fun TrackItemRow(
                             Text(
                                 text = "${index + 1}",
                                 fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isCurrent) StreamEmerald else TextSecondary
+                                color = if (isCurrent) ShinySilver else TextSecondary
                             )
                         }
                     }
@@ -1180,7 +1371,7 @@ private fun TrackItemRow(
                         Text(
                             text = track.artist,
                             style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary,
+                            color = ShinySilverDark,
                             maxLines = 1,
                             softWrap = false,
                             overflow = TextOverflow.Ellipsis,
@@ -1189,13 +1380,15 @@ private fun TrackItemRow(
 
                         // Format Badge (e.g. OPUS, FLAC, WAV)
                         Surface(
-                            color = if (isCurrent) StreamEmerald.copy(alpha = 0.2f) else Color(0xFF1E1E28),
-                            shape = RoundedCornerShape(4.dp)
+                            color = if (isCurrent) Color(0xFF1A1C28) else Color(0xFF14151E),
+                            shape = RoundedCornerShape(4.dp),
+                            border = BorderStroke(0.6.dp, if (isCurrent) Color(0xFF484C60) else Color(0xFF222430))
                         ) {
                             Text(
                                 text = track.formatDisplay,
-                                color = if (isCurrent) StreamEmerald else Color(0xFF8E8E9E),
+                                color = if (isCurrent) ShinySilver else MetallicGray,
                                 fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 softWrap = false,
@@ -1210,8 +1403,10 @@ private fun TrackItemRow(
             Text(
                 text = track.durationFormatted,
                 style = MaterialTheme.typography.labelSmall,
-                color = if (isCurrent) StreamEmerald else TextSecondary,
+                color = if (isCurrent) ShinySilver else TextSecondary,
+                fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.SemiBold,
+                fontSize = 11.sp,
                 maxLines = 1,
                 softWrap = false,
                 modifier = Modifier.padding(start = 8.dp)

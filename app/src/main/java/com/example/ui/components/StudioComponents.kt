@@ -56,15 +56,15 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.navigation.Screen
 
 /**
- * Reusable sleek studio card with 24.dp heavily rounded corners and a soft-glowing dual edge.
+ * Reusable sleek studio card with heavily rounded corners and a lustrous metallic hairline bevel.
  */
 @Composable
 fun StudioCard(
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(20.dp),
-    containerColor: Color = Color(0xFF131318),
-    borderGradientTop: Color = Color(0xFF3E3E50),
-    borderGradientBottom: Color = Color(0xFF242430),
+    containerColor: Color = Color(0xFF0C0D13),
+    borderGradientTop: Color = Color(0xFF565A6E),
+    borderGradientBottom: Color = Color(0xFF1C1E26),
     content: @Composable ColumnScope.() -> Unit
 ) {
     Card(
@@ -72,8 +72,8 @@ fun StudioCard(
             .shadow(
                 elevation = 6.dp,
                 shape = shape,
-                ambientColor = Color(0x33A0A0B8),
-                spotColor = Color(0x22FFFFFF)
+                ambientColor = Color(0x66000000),
+                spotColor = Color(0x18FFFFFF)
             ),
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = containerColor),
@@ -295,8 +295,8 @@ fun StudioBottomNavigation(
         modifier = modifier
             .fillMaxWidth()
             .testTag("bottom_nav_bar"),
-        color = Color(0xFF0C0C10),
-        border = BorderStroke(1.dp, Color(0xFF1E1E28))
+        color = Color(0xFF000000),
+        border = BorderStroke(1.dp, Color(0xFF20222C))
     ) {
         Row(
             modifier = Modifier
