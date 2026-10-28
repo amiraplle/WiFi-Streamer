@@ -119,23 +119,5 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
     }
 
-    fun updateBassBoost(percent: Int) {
-        prefsRepo.updateBassBoost(percent)
-        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
-    }
 
-    fun updateTrebleClarity(percent: Int) {
-        prefsRepo.updateTrebleClarity(percent)
-        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
-    }
-
-    fun updateEqPreset(name: String, gains: FloatArray) {
-        prefsRepo.updateEqPreset(name, gains)
-        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
-    }
-
-    fun updateEqBand(bandIndex: Int, gainDb: Float) {
-        prefsRepo.updateEqBand(bandIndex, gainDb)
-        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
-    }
 }

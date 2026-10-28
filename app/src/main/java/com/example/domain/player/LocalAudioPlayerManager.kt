@@ -92,9 +92,6 @@ class LocalAudioPlayerManager(
                     isEnabled = prefs.dspEnabled
                     isSoftLimiterEnabled = prefs.softLimiterEnabled
                     limiterTrimDb = prefs.limiterTrimDb
-                    bassBoostPercent = prefs.bassBoostPercent
-                    trebleClarityPercent = prefs.trebleClarityPercent
-                    setAllBandGains(prefs.eqBandGains)
                     airBandEnabled = prefs.airBandEnabled
                     airBandGainDb = prefs.airBandGainDb
                     bassPunchEnabled = prefs.bassPunchEnabled

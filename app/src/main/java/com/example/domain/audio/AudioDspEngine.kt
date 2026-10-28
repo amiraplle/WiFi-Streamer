@@ -7,29 +7,29 @@ import kotlin.math.sqrt
 
 /**
  * High-performance, zero-allocation real-time Audio DSP Engine tailored for
- * compact I2S DAC amplifiers (MAX98357A, PCM5102, PT2811) connected to ESP32 receivers.
+ * compact I2S DAC amplifiers (MAX98357A, PCM5102A, PT2811, UDA1334A) connected to ESP32 receivers.
  *
- * Modules & Features:
- * 1. 5-Band Graphic Equalizer with Biquad IIR filters (100Hz, 300Hz, 1kHz, 3.5kHz, 8kHz).
- * 2. Dedicated Bass Boost & Treble Clarity enhancers.
+ * Dedicated Audiophile Modules:
+ * 1. Sub-Bass Infrasonic Rumble Cut (28 Hz 2nd-order Butterworth HPF) to protect DAC headroom and small drivers.
+ * 2. Tight Bass Punch (65 Hz) & Mud-Cut (280 Hz) to eliminate boomy boxiness while preserving snap.
  * 3. Air Band High-Shelf filter (14 kHz) for silky high frequencies without harsh sibilance.
- * 4. Tight Bass Punch (65 Hz) & Mud-Cut (280 Hz) to eliminate boomy boxiness while preserving snap.
- * 5. Sub-Bass Infrasonic Rumble Cut (28 Hz 2nd-order Butterworth HPF) to protect DAC headroom and small drivers.
- * 6. Frequency-Split Stereo Widener (Mono sub-150Hz bass + Mid/Side stereo expansion for highs).
- * 7. Soft-Knee Peak Limiter & Preamp Gain Trim (-6 to +6 dB).
+ * 4. Frequency-Split Stereo Widener (Mono sub-150Hz bass + Mid/Side stereo expansion for highs).
+ * 5. Soft-Knee Peak Limiter & Preamp Gain Trim (-12 to +12 dB).
+ *
+ * Thread-Safety & Stability:
+ * - Uses atomic immutable coefficient snapshots so real-time parameter tweaking from UI sliders
+ *   never causes partial coefficient updates or IIR filter instability.
+ * - Built-in NaN / Infinity sanitation prevents recursive math explosions and DAC mute stalls.
  */
 class AudioDspEngine {
 
-    companion object {
-        const val BAND_COUNT = 5
-        val BAND_FREQUENCIES = floatArrayOf(100f, 300f, 1000f, 3500f, 8000f)
-
-        val PRESET_FLAT = floatArrayOf(0f, 0f, 0f, 0f, 0f)
-        val PRESET_BASS_BOOST = floatArrayOf(6f, 3f, 0f, 0f, 0f)
-        val PRESET_VOCAL = floatArrayOf(-2f, 1f, 4f, 3f, 0f)
-        val PRESET_ACOUSTIC = floatArrayOf(3f, 1f, -1f, 2f, 3f)
-        val PRESET_ROCK = floatArrayOf(5f, 2f, -1f, 3f, 4f)
-    }
+    class DspCoeffs(
+        val airBand: FloatArray,
+        val punch: FloatArray,
+        val mudCut: FloatArray,
+        val subBassCut: FloatArray,
+        val widenerAlpha: Float
+    )
 
     @Volatile
     var isEnabled: Boolean = false
@@ -41,29 +41,16 @@ class AudioDspEngine {
     var limiterTrimDb: Float = 0f
 
     @Volatile
-    var bassBoostPercent: Int = 0
-        set(value) {
-            field = value.coerceIn(0, 100)
-            updateCoefficients()
-        }
-
-    @Volatile
-    var trebleClarityPercent: Int = 0
-        set(value) {
-            field = value.coerceIn(0, 100)
-            updateCoefficients()
-        }
-
-    // --- New Audiophile Sound Tweaks ---
-
-    @Volatile
     var airBandEnabled: Boolean = false
 
     @Volatile
     var airBandGainDb: Float = 0f
         set(value) {
-            field = value.coerceIn(0f, 6f)
-            updateCoefficients()
+            val clamped = value.coerceIn(0f, 6f)
+            if (field != clamped) {
+                field = clamped
+                recomputeCoefficients()
+            }
         }
 
     @Volatile
@@ -72,8 +59,11 @@ class AudioDspEngine {
     @Volatile
     var bassPunchIntensity: Int = 50
         set(value) {
-            field = value.coerceIn(0, 100)
-            updateCoefficients()
+            val clamped = value.coerceIn(0, 100)
+            if (field != clamped) {
+                field = clamped
+                recomputeCoefficients()
+            }
         }
 
     @Volatile
@@ -88,72 +78,39 @@ class AudioDspEngine {
             field = value.coerceIn(100, 150)
         }
 
-    private val bandGains = FloatArray(BAND_COUNT) { 0f }
-
-    // 5-band EQ coefficients: [b0, b1, b2, a1, a2]
-    private val filterCoeffs = Array(BAND_COUNT) { FloatArray(5) }
-    private val leftHistory = Array(BAND_COUNT) { FloatArray(4) }
-    private val rightHistory = Array(BAND_COUNT) { FloatArray(4) }
-
-    // Air Band coefficients & state history
-    private val airBandCoeffs = FloatArray(5)
+    // Filter history registers (audio processing thread only)
     private val airBandHistL = FloatArray(4)
     private val airBandHistR = FloatArray(4)
-
-    // Bass Punch (65 Hz) & Mud-Cut (280 Hz) coefficients & state history
-    private val punchCoeffs = FloatArray(5)
     private val punchHistL = FloatArray(4)
     private val punchHistR = FloatArray(4)
-
-    private val mudCutCoeffs = FloatArray(5)
     private val mudCutHistL = FloatArray(4)
     private val mudCutHistR = FloatArray(4)
-
-    // Sub-Bass Rumble Cut (28 Hz HPF) coefficients & state history
-    private val subBassCutCoeffs = FloatArray(5)
     private val subBassCutHistL = FloatArray(4)
     private val subBassCutHistR = FloatArray(4)
 
     // Stereo Widener 150 Hz crossover LPF state
     private var widenerLpfStateL = 0f
     private var widenerLpfStateR = 0f
-    private var widenerLpfAlpha = 0.0194f // Calculated for 150Hz at 48kHz
 
+    @Volatile
     private var currentSampleRate: Int = 48000
 
+    @Volatile
+    private var activeCoeffs: DspCoeffs = computeNewCoeffs(48000, 0f, 50)
+
     init {
-        updateCoefficients()
+        recomputeCoefficients()
     }
 
     fun setSampleRate(sampleRate: Int) {
         if (currentSampleRate != sampleRate && sampleRate > 0) {
             currentSampleRate = sampleRate
             resetHistory()
-            updateCoefficients()
+            recomputeCoefficients()
         }
     }
-
-    fun setBandGain(bandIndex: Int, gainDb: Float) {
-        if (bandIndex in 0 until BAND_COUNT) {
-            bandGains[bandIndex] = gainDb.coerceIn(-12f, 12f)
-            updateCoefficients()
-        }
-    }
-
-    fun setAllBandGains(gains: FloatArray) {
-        for (i in 0 until BAND_COUNT.coerceAtMost(gains.size)) {
-            bandGains[i] = gains[i].coerceIn(-12f, 12f)
-        }
-        updateCoefficients()
-    }
-
-    fun getBandGains(): FloatArray = bandGains.clone()
 
     fun resetHistory() {
-        for (b in 0 until BAND_COUNT) {
-            leftHistory[b].fill(0f)
-            rightHistory[b].fill(0f)
-        }
         airBandHistL.fill(0f)
         airBandHistR.fill(0f)
         punchHistL.fill(0f)
@@ -166,112 +123,43 @@ class AudioDspEngine {
         widenerLpfStateR = 0f
     }
 
-    /**
-     * Compute Robert Bristow-Johnson Audio EQ Cookbook biquad coefficients.
-     */
-    @Synchronized
-    fun updateCoefficients() {
-        val Fs = currentSampleRate.toFloat()
-
-        // 1. 5-Band Equalizer Coefficients
-        val effectiveGain0 = (bandGains[0] + (bassBoostPercent / 100f) * 7f).coerceIn(-12f, 15f)
-        val effectiveGain4 = (bandGains[4] + (trebleClarityPercent / 100f) * 7f).coerceIn(-12f, 15f)
-
-        for (band in 0 until BAND_COUNT) {
-            val f0 = BAND_FREQUENCIES[band]
-            val gainDb = when (band) {
-                0 -> effectiveGain0
-                4 -> effectiveGain4
-                else -> bandGains[band]
-            }
-
-            val A = 10.0.pow(gainDb / 40.0)
-            val w0 = 2.0 * Math.PI * f0 / Fs
-            val cosW = cos(w0)
-            val sinW = sin(w0)
-
-            when (band) {
-                0 -> {
-                    // Low Shelf
-                    val Q = 0.707
-                    val alpha = sinW / (2.0 * Q)
-                    val sqrtA = sqrt(A)
-                    val b0 = A * ((A + 1.0) - (A - 1.0) * cosW + 2.0 * sqrtA * alpha)
-                    val b1 = 2.0 * A * ((A - 1.0) - (A + 1.0) * cosW)
-                    val b2 = A * ((A + 1.0) - (A - 1.0) * cosW - 2.0 * sqrtA * alpha)
-                    val a0 = (A + 1.0) + (A - 1.0) * cosW + 2.0 * sqrtA * alpha
-                    val a1 = -2.0 * ((A - 1.0) + (A + 1.0) * cosW)
-                    val a2 = (A + 1.0) + (A - 1.0) * cosW - 2.0 * sqrtA * alpha
-
-                    val invA0 = (1.0 / a0).toFloat()
-                    filterCoeffs[band][0] = (b0 * invA0).toFloat()
-                    filterCoeffs[band][1] = (b1 * invA0).toFloat()
-                    filterCoeffs[band][2] = (b2 * invA0).toFloat()
-                    filterCoeffs[band][3] = (a1 * invA0).toFloat()
-                    filterCoeffs[band][4] = (a2 * invA0).toFloat()
-                }
-                4 -> {
-                    // High Shelf
-                    val Q = 0.707
-                    val alpha = sinW / (2.0 * Q)
-                    val sqrtA = sqrt(A)
-                    val b0 = A * ((A + 1.0) + (A - 1.0) * cosW + 2.0 * sqrtA * alpha)
-                    val b1 = -2.0 * A * ((A - 1.0) + (A + 1.0) * cosW)
-                    val b2 = A * ((A + 1.0) + (A - 1.0) * cosW - 2.0 * sqrtA * alpha)
-                    val a0 = (A + 1.0) - (A - 1.0) * cosW + 2.0 * sqrtA * alpha
-                    val a1 = 2.0 * ((A - 1.0) - (A + 1.0) * cosW)
-                    val a2 = (A + 1.0) - (A - 1.0) * cosW - 2.0 * sqrtA * alpha
-
-                    val invA0 = (1.0 / a0).toFloat()
-                    filterCoeffs[band][0] = (b0 * invA0).toFloat()
-                    filterCoeffs[band][1] = (b1 * invA0).toFloat()
-                    filterCoeffs[band][2] = (b2 * invA0).toFloat()
-                    filterCoeffs[band][3] = (a1 * invA0).toFloat()
-                    filterCoeffs[band][4] = (a2 * invA0).toFloat()
-                }
-                else -> {
-                    // Peaking EQ
-                    val Q = 1.0
-                    val alpha = sinW / (2.0 * Q)
-                    val b0 = 1.0 + alpha * A
-                    val b1 = -2.0 * cosW
-                    val b2 = 1.0 - alpha * A
-                    val a0 = 1.0 + alpha / A
-                    val a1 = -2.0 * cosW
-                    val a2 = 1.0 - alpha / A
-
-                    val invA0 = (1.0 / a0).toFloat()
-                    filterCoeffs[band][0] = (b0 * invA0).toFloat()
-                    filterCoeffs[band][1] = (b1 * invA0).toFloat()
-                    filterCoeffs[band][2] = (b2 * invA0).toFloat()
-                    filterCoeffs[band][3] = (a1 * invA0).toFloat()
-                    filterCoeffs[band][4] = (a2 * invA0).toFloat()
-                }
-            }
-        }
-
-        // 2. Air Band (14 kHz High Shelf)
-        computeHighShelfCoeffs(14000f, airBandGainDb, 0.707, airBandCoeffs)
-
-        // 3. Bass Punch (65 Hz Bell Boost) & Mud-Cut (280 Hz Bell Cut)
-        val punchGainDb = (bassPunchIntensity / 100f) * 4.5f
-        val mudCutGainDb = (bassPunchIntensity / 100f) * -2.5f
-        computePeakingCoeffs(65f, punchGainDb, 1.4, punchCoeffs)
-        computePeakingCoeffs(280f, mudCutGainDb, 1.8, mudCutCoeffs)
-
-        // 4. Sub-Bass Rumble Cut (28 Hz 2nd-order Butterworth HPF)
-        computeHpfCoeffs(28f, 0.707, subBassCutCoeffs)
-
-        // 5. Stereo Widener crossover alpha (150 Hz LPF)
-        val dt = 1.0f / Fs
-        val rc = 1.0f / (2.0f * Math.PI.toFloat() * 150.0f)
-        widenerLpfAlpha = (dt / (rc + dt)).coerceIn(0.001f, 0.5f)
+    private fun recomputeCoefficients() {
+        val sr = currentSampleRate
+        val airGain = airBandGainDb
+        val punchInt = bassPunchIntensity
+        activeCoeffs = computeNewCoeffs(sr, airGain, punchInt)
     }
 
-    private fun computeHighShelfCoeffs(f0: Float, gainDb: Float, Q: Double, out: FloatArray) {
-        val Fs = currentSampleRate.toDouble()
+    private fun computeNewCoeffs(sampleRate: Int, airGainDb: Float, punchIntensity: Int): DspCoeffs {
+        val Fs = sampleRate.toDouble().coerceAtLeast(8000.0)
+
+        // 1. Air Band (14 kHz High Shelf)
+        val air = FloatArray(5)
+        computeHighShelfCoeffs(Fs, 14000.0, airGainDb.toDouble(), 0.707, air)
+
+        // 2. Bass Punch (65 Hz Bell Boost) & Mud-Cut (280 Hz Bell Cut)
+        val punchGainDb = (punchIntensity / 100.0) * 4.5
+        val mudCutGainDb = (punchIntensity / 100.0) * -2.5
+        val punch = FloatArray(5)
+        val mudCut = FloatArray(5)
+        computePeakingCoeffs(Fs, 65.0, punchGainDb, 1.4, punch)
+        computePeakingCoeffs(Fs, 280.0, mudCutGainDb, 1.8, mudCut)
+
+        // 3. Sub-Bass Rumble Cut (28 Hz 2nd-order Butterworth HPF)
+        val subCut = FloatArray(5)
+        computeHpfCoeffs(Fs, 28.0, 0.707, subCut)
+
+        // 4. Stereo Widener crossover alpha (150 Hz LPF)
+        val dt = 1.0 / Fs
+        val rc = 1.0 / (2.0 * Math.PI * 150.0)
+        val alpha = (dt / (rc + dt)).toFloat().coerceIn(0.001f, 0.5f)
+
+        return DspCoeffs(air, punch, mudCut, subCut, alpha)
+    }
+
+    private fun computeHighShelfCoeffs(Fs: Double, f0: Double, gainDb: Double, Q: Double, out: FloatArray) {
         val A = 10.0.pow(gainDb / 40.0)
-        val clampedF0 = f0.toDouble().coerceAtMost(Fs * 0.45)
+        val clampedF0 = f0.coerceAtMost(Fs * 0.45)
         val w0 = 2.0 * Math.PI * clampedF0 / Fs
         val cosW = cos(w0)
         val sinW = sin(w0)
@@ -293,10 +181,9 @@ class AudioDspEngine {
         out[4] = (a2 * invA0).toFloat()
     }
 
-    private fun computePeakingCoeffs(f0: Float, gainDb: Float, Q: Double, out: FloatArray) {
-        val Fs = currentSampleRate.toDouble()
+    private fun computePeakingCoeffs(Fs: Double, f0: Double, gainDb: Double, Q: Double, out: FloatArray) {
         val A = 10.0.pow(gainDb / 40.0)
-        val clampedF0 = f0.toDouble().coerceAtMost(Fs * 0.45)
+        val clampedF0 = f0.coerceAtMost(Fs * 0.45)
         val w0 = 2.0 * Math.PI * clampedF0 / Fs
         val cosW = cos(w0)
         val sinW = sin(w0)
@@ -317,9 +204,8 @@ class AudioDspEngine {
         out[4] = (a2 * invA0).toFloat()
     }
 
-    private fun computeHpfCoeffs(f0: Float, Q: Double, out: FloatArray) {
-        val Fs = currentSampleRate.toDouble()
-        val clampedF0 = f0.toDouble().coerceAtMost(Fs * 0.45)
+    private fun computeHpfCoeffs(Fs: Double, f0: Double, Q: Double, out: FloatArray) {
+        val clampedF0 = f0.coerceAtMost(Fs * 0.45)
         val w0 = 2.0 * Math.PI * clampedF0 / Fs
         val cosW = cos(w0)
         val sinW = sin(w0)
@@ -340,6 +226,10 @@ class AudioDspEngine {
         out[4] = (a2 * invA0).toFloat()
     }
 
+    /**
+     * Applies a standard biquad direct-form IIR filter.
+     * Includes NaN / Infinity sanitation to self-heal and avoid any mute or noise latching.
+     */
     private inline fun applyBiquad(sample: Float, coeffs: FloatArray, hist: FloatArray): Float {
         val b0 = coeffs[0]
         val b1 = coeffs[1]
@@ -352,7 +242,14 @@ class AudioDspEngine {
         val y1 = hist[2]
         val y2 = hist[3]
 
-        val y0 = b0 * sample + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+        var y0 = b0 * sample + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+        if (y0.isNaN() || y0.isInfinite()) {
+            hist[0] = 0f
+            hist[1] = 0f
+            hist[2] = 0f
+            hist[3] = 0f
+            return sample
+        }
 
         hist[1] = x1
         hist[0] = sample
@@ -364,7 +261,7 @@ class AudioDspEngine {
 
     /**
      * In-place DSP processing on 16-bit, 24-bit, or 32-bit interleaved PCM buffer.
-     * ZERO allocations occur during this method.
+     * ZERO memory allocations occur during this method.
      */
     fun process(
         buffer: ByteArray,
@@ -372,7 +269,7 @@ class AudioDspEngine {
         bitDepth: Int,
         channels: Int
     ) {
-        val applyEq = isEnabled
+        val masterEnabled = isEnabled
         val applyLimiter = isSoftLimiterEnabled
         val currentTrim = limiterTrimDb
         val applyAir = airBandEnabled && airBandGainDb > 0f
@@ -382,17 +279,17 @@ class AudioDspEngine {
 
         val trimGain = if (currentTrim != 0f) 10.0.pow(currentTrim.toDouble() / 20.0).toFloat() else 1.0f
 
-        // Fast-path bypass check: if everything is disabled/zero, skip immediately
-        if (!applyEq && !applyLimiter && currentTrim == 0f && !applyAir && !applyPunch && !applySubCut && !applyWidener) {
+        // Fast-path bypass check: if master DSP is disabled and limiter is disabled with 0 trim, skip immediately
+        if (!masterEnabled && !applyLimiter && currentTrim == 0f) {
             return
         }
 
-        if (bitDepth == 16) {
-            process16Bit(buffer, length, channels, applyEq, applyLimiter, trimGain, applyAir, applyPunch, applySubCut, applyWidener)
-        } else if (bitDepth == 24) {
-            process24Bit(buffer, length, channels, applyEq, applyLimiter, trimGain, applyAir, applyPunch, applySubCut, applyWidener)
-        } else if (bitDepth == 32) {
-            process32Bit(buffer, length, channels, applyEq, applyLimiter, trimGain, applyAir, applyPunch, applySubCut, applyWidener)
+        val coeffs = activeCoeffs
+
+        when (bitDepth) {
+            16 -> process16Bit(buffer, length, channels, masterEnabled, applyLimiter, trimGain, applyAir, applyPunch, applySubCut, applyWidener, coeffs)
+            24 -> process24Bit(buffer, length, channels, masterEnabled, applyLimiter, trimGain, applyAir, applyPunch, applySubCut, applyWidener, coeffs)
+            32 -> process32Bit(buffer, length, channels, masterEnabled, applyLimiter, trimGain, applyAir, applyPunch, applySubCut, applyWidener, coeffs)
         }
     }
 
@@ -400,16 +297,17 @@ class AudioDspEngine {
         buffer: ByteArray,
         length: Int,
         channels: Int,
-        applyEq: Boolean,
+        masterEnabled: Boolean,
         applyLimiter: Boolean,
         trimGain: Float,
         applyAir: Boolean,
         applyPunch: Boolean,
         applySubCut: Boolean,
-        applyWidener: Boolean
+        applyWidener: Boolean,
+        coeffs: DspCoeffs
     ) {
         val widthMult = stereoWidthPercent / 100f
-        val alpha = widenerLpfAlpha
+        val alpha = coeffs.widenerAlpha
 
         if (channels == 2) {
             var i = 0
@@ -428,52 +326,47 @@ class AudioDspEngine {
                     sR *= trimGain
                 }
 
-                // 1. Sub-Bass Infrasonic Rumble Cut (28 Hz HPF)
-                if (applySubCut) {
-                    sL = applyBiquad(sL, subBassCutCoeffs, subBassCutHistL)
-                    sR = applyBiquad(sR, subBassCutCoeffs, subBassCutHistR)
-                }
+                if (masterEnabled) {
+                    // 1. Sub-Bass Infrasonic Rumble Cut (28 Hz HPF)
+                    if (applySubCut) {
+                        sL = applyBiquad(sL, coeffs.subBassCut, subBassCutHistL)
+                        sR = applyBiquad(sR, coeffs.subBassCut, subBassCutHistR)
+                    }
 
-                // 2. Tight Bass Punch & Mud-Cut
-                if (applyPunch) {
-                    sL = applyBiquad(sL, punchCoeffs, punchHistL)
-                    sL = applyBiquad(sL, mudCutCoeffs, mudCutHistL)
+                    // 2. Tight Bass Punch & Mud-Cut
+                    if (applyPunch) {
+                        sL = applyBiquad(sL, coeffs.punch, punchHistL)
+                        sL = applyBiquad(sL, coeffs.mudCut, mudCutHistL)
+                        sR = applyBiquad(sR, coeffs.punch, punchHistR)
+                        sR = applyBiquad(sR, coeffs.mudCut, mudCutHistR)
+                    }
 
-                    sR = applyBiquad(sR, punchCoeffs, punchHistR)
-                    sR = applyBiquad(sR, mudCutCoeffs, mudCutHistR)
-                }
+                    // 3. Air Band High-Shelf (14 kHz)
+                    if (applyAir) {
+                        sL = applyBiquad(sL, coeffs.airBand, airBandHistL)
+                        sR = applyBiquad(sR, coeffs.airBand, airBandHistR)
+                    }
 
-                // 3. 5-Band Equalizer
-                if (applyEq) {
-                    for (b in 0 until BAND_COUNT) {
-                        sL = applyBiquad(sL, filterCoeffs[b], leftHistory[b])
-                        sR = applyBiquad(sR, filterCoeffs[b], rightHistory[b])
+                    // 4. Frequency-Split Stereo Widener (Mono sub-150Hz bass + Mid/Side on highs)
+                    if (applyWidener) {
+                        widenerLpfStateL += alpha * (sL - widenerLpfStateL)
+                        widenerLpfStateR += alpha * (sR - widenerLpfStateR)
+                        if (widenerLpfStateL.isNaN()) widenerLpfStateL = 0f
+                        if (widenerLpfStateR.isNaN()) widenerLpfStateR = 0f
+
+                        val lowMono = (widenerLpfStateL + widenerLpfStateR) * 0.5f
+                        val highL = sL - widenerLpfStateL
+                        val highR = sR - widenerLpfStateR
+
+                        val mid = (highL + highR) * 0.5f
+                        val side = (highL - highR) * 0.5f * widthMult
+
+                        sL = lowMono + mid + side
+                        sR = lowMono + mid - side
                     }
                 }
 
-                // 4. Air Band High-Shelf (14 kHz)
-                if (applyAir) {
-                    sL = applyBiquad(sL, airBandCoeffs, airBandHistL)
-                    sR = applyBiquad(sR, airBandCoeffs, airBandHistR)
-                }
-
-                // 5. Frequency-Split Stereo Widener (Mono sub-150Hz bass + Mid/Side on highs)
-                if (applyWidener) {
-                    widenerLpfStateL += alpha * (sL - widenerLpfStateL)
-                    widenerLpfStateR += alpha * (sR - widenerLpfStateR)
-
-                    val lowMono = (widenerLpfStateL + widenerLpfStateR) * 0.5f
-                    val highL = sL - widenerLpfStateL
-                    val highR = sR - widenerLpfStateR
-
-                    val mid = (highL + highR) * 0.5f
-                    val side = (highL - highR) * 0.5f * widthMult
-
-                    sL = lowMono + mid + side
-                    sR = lowMono + mid - side
-                }
-
-                // 6. Soft-Knee Peak Limiter
+                // 5. Soft-Knee Peak Limiter
                 if (applyLimiter) {
                     sL = softLimit16(sL)
                     sR = softLimit16(sR)
@@ -501,15 +394,14 @@ class AudioDspEngine {
                 var s = ((high shl 8) or low).toShort().toFloat()
 
                 if (trimGain != 1.0f) s *= trimGain
-                if (applySubCut) s = applyBiquad(s, subBassCutCoeffs, subBassCutHistL)
-                if (applyPunch) {
-                    s = applyBiquad(s, punchCoeffs, punchHistL)
-                    s = applyBiquad(s, mudCutCoeffs, mudCutHistL)
+                if (masterEnabled) {
+                    if (applySubCut) s = applyBiquad(s, coeffs.subBassCut, subBassCutHistL)
+                    if (applyPunch) {
+                        s = applyBiquad(s, coeffs.punch, punchHistL)
+                        s = applyBiquad(s, coeffs.mudCut, mudCutHistL)
+                    }
+                    if (applyAir) s = applyBiquad(s, coeffs.airBand, airBandHistL)
                 }
-                if (applyEq) {
-                    for (b in 0 until BAND_COUNT) s = applyBiquad(s, filterCoeffs[b], leftHistory[b])
-                }
-                if (applyAir) s = applyBiquad(s, airBandCoeffs, airBandHistL)
 
                 if (applyLimiter) s = softLimit16(s) else s = s.coerceIn(-32768f, 32767f)
 
@@ -525,16 +417,17 @@ class AudioDspEngine {
         buffer: ByteArray,
         length: Int,
         channels: Int,
-        applyEq: Boolean,
+        masterEnabled: Boolean,
         applyLimiter: Boolean,
         trimGain: Float,
         applyAir: Boolean,
         applyPunch: Boolean,
         applySubCut: Boolean,
-        applyWidener: Boolean
+        applyWidener: Boolean,
+        coeffs: DspCoeffs
     ) {
         val widthMult = stereoWidthPercent / 100f
-        val alpha = widenerLpfAlpha
+        val alpha = coeffs.widenerAlpha
 
         if (channels == 2) {
             var i = 0
@@ -558,43 +451,40 @@ class AudioDspEngine {
                     sR *= trimGain
                 }
 
-                if (applySubCut) {
-                    sL = applyBiquad(sL, subBassCutCoeffs, subBassCutHistL)
-                    sR = applyBiquad(sR, subBassCutCoeffs, subBassCutHistR)
-                }
-
-                if (applyPunch) {
-                    sL = applyBiquad(sL, punchCoeffs, punchHistL)
-                    sL = applyBiquad(sL, mudCutCoeffs, mudCutHistL)
-                    sR = applyBiquad(sR, punchCoeffs, punchHistR)
-                    sR = applyBiquad(sR, mudCutCoeffs, mudCutHistR)
-                }
-
-                if (applyEq) {
-                    for (b in 0 until BAND_COUNT) {
-                        sL = applyBiquad(sL, filterCoeffs[b], leftHistory[b])
-                        sR = applyBiquad(sR, filterCoeffs[b], rightHistory[b])
+                if (masterEnabled) {
+                    if (applySubCut) {
+                        sL = applyBiquad(sL, coeffs.subBassCut, subBassCutHistL)
+                        sR = applyBiquad(sR, coeffs.subBassCut, subBassCutHistR)
                     }
-                }
 
-                if (applyAir) {
-                    sL = applyBiquad(sL, airBandCoeffs, airBandHistL)
-                    sR = applyBiquad(sR, airBandCoeffs, airBandHistR)
-                }
+                    if (applyPunch) {
+                        sL = applyBiquad(sL, coeffs.punch, punchHistL)
+                        sL = applyBiquad(sL, coeffs.mudCut, mudCutHistL)
+                        sR = applyBiquad(sR, coeffs.punch, punchHistR)
+                        sR = applyBiquad(sR, coeffs.mudCut, mudCutHistR)
+                    }
 
-                if (applyWidener) {
-                    widenerLpfStateL += alpha * (sL - widenerLpfStateL)
-                    widenerLpfStateR += alpha * (sR - widenerLpfStateR)
+                    if (applyAir) {
+                        sL = applyBiquad(sL, coeffs.airBand, airBandHistL)
+                        sR = applyBiquad(sR, coeffs.airBand, airBandHistR)
+                    }
 
-                    val lowMono = (widenerLpfStateL + widenerLpfStateR) * 0.5f
-                    val highL = sL - widenerLpfStateL
-                    val highR = sR - widenerLpfStateR
+                    if (applyWidener) {
+                        widenerLpfStateL += alpha * (sL - widenerLpfStateL)
+                        widenerLpfStateR += alpha * (sR - widenerLpfStateR)
+                        if (widenerLpfStateL.isNaN()) widenerLpfStateL = 0f
+                        if (widenerLpfStateR.isNaN()) widenerLpfStateR = 0f
 
-                    val mid = (highL + highR) * 0.5f
-                    val side = (highL - highR) * 0.5f * widthMult
+                        val lowMono = (widenerLpfStateL + widenerLpfStateR) * 0.5f
+                        val highL = sL - widenerLpfStateL
+                        val highR = sR - widenerLpfStateR
 
-                    sL = lowMono + mid + side
-                    sR = lowMono + mid - side
+                        val mid = (highL + highR) * 0.5f
+                        val side = (highL - highR) * 0.5f * widthMult
+
+                        sL = lowMono + mid + side
+                        sR = lowMono + mid - side
+                    }
                 }
 
                 if (applyLimiter) {
@@ -628,15 +518,14 @@ class AudioDspEngine {
                 var s = raw.toFloat()
 
                 if (trimGain != 1.0f) s *= trimGain
-                if (applySubCut) s = applyBiquad(s, subBassCutCoeffs, subBassCutHistL)
-                if (applyPunch) {
-                    s = applyBiquad(s, punchCoeffs, punchHistL)
-                    s = applyBiquad(s, mudCutCoeffs, mudCutHistL)
+                if (masterEnabled) {
+                    if (applySubCut) s = applyBiquad(s, coeffs.subBassCut, subBassCutHistL)
+                    if (applyPunch) {
+                        s = applyBiquad(s, coeffs.punch, punchHistL)
+                        s = applyBiquad(s, coeffs.mudCut, mudCutHistL)
+                    }
+                    if (applyAir) s = applyBiquad(s, coeffs.airBand, airBandHistL)
                 }
-                if (applyEq) {
-                    for (b in 0 until BAND_COUNT) s = applyBiquad(s, filterCoeffs[b], leftHistory[b])
-                }
-                if (applyAir) s = applyBiquad(s, airBandCoeffs, airBandHistL)
 
                 if (applyLimiter) s = softLimit24(s) else s = s.coerceIn(-8388608f, 8388607f)
 
@@ -653,16 +542,17 @@ class AudioDspEngine {
         buffer: ByteArray,
         length: Int,
         channels: Int,
-        applyEq: Boolean,
+        masterEnabled: Boolean,
         applyLimiter: Boolean,
         trimGain: Float,
         applyAir: Boolean,
         applyPunch: Boolean,
         applySubCut: Boolean,
-        applyWidener: Boolean
+        applyWidener: Boolean,
+        coeffs: DspCoeffs
     ) {
         val widthMult = stereoWidthPercent / 100f
-        val alpha = widenerLpfAlpha
+        val alpha = coeffs.widenerAlpha
 
         if (channels == 2) {
             var i = 0
@@ -684,43 +574,40 @@ class AudioDspEngine {
                     sR *= trimGain
                 }
 
-                if (applySubCut) {
-                    sL = applyBiquad(sL, subBassCutCoeffs, subBassCutHistL)
-                    sR = applyBiquad(sR, subBassCutCoeffs, subBassCutHistR)
-                }
-
-                if (applyPunch) {
-                    sL = applyBiquad(sL, punchCoeffs, punchHistL)
-                    sL = applyBiquad(sL, mudCutCoeffs, mudCutHistL)
-                    sR = applyBiquad(sR, punchCoeffs, punchHistR)
-                    sR = applyBiquad(sR, mudCutCoeffs, mudCutHistR)
-                }
-
-                if (applyEq) {
-                    for (b in 0 until BAND_COUNT) {
-                        sL = applyBiquad(sL, filterCoeffs[b], leftHistory[b])
-                        sR = applyBiquad(sR, filterCoeffs[b], rightHistory[b])
+                if (masterEnabled) {
+                    if (applySubCut) {
+                        sL = applyBiquad(sL, coeffs.subBassCut, subBassCutHistL)
+                        sR = applyBiquad(sR, coeffs.subBassCut, subBassCutHistR)
                     }
-                }
 
-                if (applyAir) {
-                    sL = applyBiquad(sL, airBandCoeffs, airBandHistL)
-                    sR = applyBiquad(sR, airBandCoeffs, airBandHistR)
-                }
+                    if (applyPunch) {
+                        sL = applyBiquad(sL, coeffs.punch, punchHistL)
+                        sL = applyBiquad(sL, coeffs.mudCut, mudCutHistL)
+                        sR = applyBiquad(sR, coeffs.punch, punchHistR)
+                        sR = applyBiquad(sR, coeffs.mudCut, mudCutHistR)
+                    }
 
-                if (applyWidener) {
-                    widenerLpfStateL += alpha * (sL - widenerLpfStateL)
-                    widenerLpfStateR += alpha * (sR - widenerLpfStateR)
+                    if (applyAir) {
+                        sL = applyBiquad(sL, coeffs.airBand, airBandHistL)
+                        sR = applyBiquad(sR, coeffs.airBand, airBandHistR)
+                    }
 
-                    val lowMono = (widenerLpfStateL + widenerLpfStateR) * 0.5f
-                    val highL = sL - widenerLpfStateL
-                    val highR = sR - widenerLpfStateR
+                    if (applyWidener) {
+                        widenerLpfStateL += alpha * (sL - widenerLpfStateL)
+                        widenerLpfStateR += alpha * (sR - widenerLpfStateR)
+                        if (widenerLpfStateL.isNaN()) widenerLpfStateL = 0f
+                        if (widenerLpfStateR.isNaN()) widenerLpfStateR = 0f
 
-                    val mid = (highL + highR) * 0.5f
-                    val side = (highL - highR) * 0.5f * widthMult
+                        val lowMono = (widenerLpfStateL + widenerLpfStateR) * 0.5f
+                        val highL = sL - widenerLpfStateL
+                        val highR = sR - widenerLpfStateR
 
-                    sL = lowMono + mid + side
-                    sR = lowMono + mid - side
+                        val mid = (highL + highR) * 0.5f
+                        val side = (highL - highR) * 0.5f * widthMult
+
+                        sL = lowMono + mid + side
+                        sR = lowMono + mid - side
+                    }
                 }
 
                 val outL = sL.coerceIn(-2147483648f, 2147483647f).toLong().toInt()
@@ -747,15 +634,14 @@ class AudioDspEngine {
                 var s = ((b3 shl 24) or (b2 shl 16) or (b1 shl 8) or b0).toFloat()
 
                 if (trimGain != 1.0f) s *= trimGain
-                if (applySubCut) s = applyBiquad(s, subBassCutCoeffs, subBassCutHistL)
-                if (applyPunch) {
-                    s = applyBiquad(s, punchCoeffs, punchHistL)
-                    s = applyBiquad(s, mudCutCoeffs, mudCutHistL)
+                if (masterEnabled) {
+                    if (applySubCut) s = applyBiquad(s, coeffs.subBassCut, subBassCutHistL)
+                    if (applyPunch) {
+                        s = applyBiquad(s, coeffs.punch, punchHistL)
+                        s = applyBiquad(s, coeffs.mudCut, mudCutHistL)
+                    }
+                    if (applyAir) s = applyBiquad(s, coeffs.airBand, airBandHistL)
                 }
-                if (applyEq) {
-                    for (b in 0 until BAND_COUNT) s = applyBiquad(s, filterCoeffs[b], leftHistory[b])
-                }
-                if (applyAir) s = applyBiquad(s, airBandCoeffs, airBandHistL)
 
                 val out = s.coerceIn(-2147483648f, 2147483647f).toLong().toInt()
                 buffer[i] = (out and 0xFF).toByte()

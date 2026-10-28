@@ -18,6 +18,8 @@ import android.media.MediaMetadata
 import android.media.projection.MediaProjectionManager
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
+import com.example.model.AudioStreamFormat
+import com.example.model.HeaderMode
 import com.example.model.PlayerState
 import com.example.model.PlayerUiState
 import android.net.ConnectivityManager
@@ -233,6 +235,9 @@ class StreamingService : Service() {
             }
         )
 
+        var lastTrackedFormat: AudioStreamFormat? = null
+        var lastTrackedHeaderMode: HeaderMode? = null
+
         // Dynamically reflect changes made in Settings (Rate pacing, Wi-Fi QoS, Bit-Perfect, Dither, Keep-Alive, Target Format)
         serviceScope.launch {
             AppContainer.getPreferences(this@StreamingService).userPreferences.collect { prefs ->
@@ -244,13 +249,18 @@ class StreamingService : Service() {
                 pacedTransmitter?.ratePacingEnabled = prefs.ratePacing
                 udpClient?.setQosEnabled(prefs.wifiQosEnabled)
 
-                // Propagate format changes (e.g. 16-bit to 24-bit) dynamically to transmitter and transport
+                // Propagate format changes ONLY when audio format or header mode actually changes
                 val newFormat = prefs.audioFormat
-                pacedTransmitter?.updateFormat(newFormat)
-                udpClient?.updateFormat(newFormat, prefs.headerMode)
-                if (_telemetry.value.format != newFormat) {
-                    _telemetry.value = _telemetry.value.copy(format = newFormat)
-                    updateNotification()
+                val newHeaderMode = prefs.headerMode
+                if (newFormat != lastTrackedFormat || newHeaderMode != lastTrackedHeaderMode) {
+                    lastTrackedFormat = newFormat
+                    lastTrackedHeaderMode = newHeaderMode
+                    pacedTransmitter?.updateFormat(newFormat)
+                    udpClient?.updateFormat(newFormat, newHeaderMode)
+                    if (_telemetry.value.format != newFormat) {
+                        _telemetry.value = _telemetry.value.copy(format = newFormat)
+                        updateNotification()
+                    }
                 }
             }
         }
@@ -754,9 +764,6 @@ class StreamingService : Service() {
             isEnabled = prefs.dspEnabled
             isSoftLimiterEnabled = prefs.softLimiterEnabled
             limiterTrimDb = prefs.limiterTrimDb
-            bassBoostPercent = prefs.bassBoostPercent
-            trebleClarityPercent = prefs.trebleClarityPercent
-            setAllBandGains(prefs.eqBandGains)
             airBandEnabled = prefs.airBandEnabled
             airBandGainDb = prefs.airBandGainDb
             bassPunchEnabled = prefs.bassPunchEnabled

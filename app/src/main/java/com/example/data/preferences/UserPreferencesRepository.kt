@@ -32,16 +32,8 @@ data class UserPreferences(
     val bitPerfectMode: Boolean = false,
     val ditherEnabled: Boolean = true,
     val dspEnabled: Boolean = false,
-    val eqPresetName: String = "Flat",
-    val eqBand0: Float = 0f,
-    val eqBand1: Float = 0f,
-    val eqBand2: Float = 0f,
-    val eqBand3: Float = 0f,
-    val eqBand4: Float = 0f,
     val softLimiterEnabled: Boolean = true,
     val limiterTrimDb: Float = 0f,
-    val bassBoostPercent: Int = 0,
-    val trebleClarityPercent: Int = 0,
     val airBandEnabled: Boolean = false,
     val airBandGainDb: Float = 0f,
     val bassPunchEnabled: Boolean = false,
@@ -54,9 +46,6 @@ data class UserPreferences(
 ) {
     val audioFormat: AudioStreamFormat
         get() = AudioStreamFormat(sampleRate, bitDepth, channelCount)
-
-    val eqBandGains: FloatArray
-        get() = floatArrayOf(eqBand0, eqBand1, eqBand2, eqBand3, eqBand4)
 }
 
 class UserPreferencesRepository(context: Context) {
@@ -108,16 +97,8 @@ class UserPreferencesRepository(context: Context) {
             bitPerfectMode = prefs.getBoolean("bit_perfect_mode", false),
             ditherEnabled = prefs.getBoolean("dither_enabled", true),
             dspEnabled = prefs.getBoolean("dsp_enabled", false),
-            eqPresetName = prefs.getString("eq_preset_name", "Flat") ?: "Flat",
-            eqBand0 = prefs.getFloat("eq_band_0", 0f),
-            eqBand1 = prefs.getFloat("eq_band_1", 0f),
-            eqBand2 = prefs.getFloat("eq_band_2", 0f),
-            eqBand3 = prefs.getFloat("eq_band_3", 0f),
-            eqBand4 = prefs.getFloat("eq_band_4", 0f),
             softLimiterEnabled = prefs.getBoolean("soft_limiter_enabled", true),
             limiterTrimDb = prefs.getFloat("limiter_trim_db", 0f),
-            bassBoostPercent = prefs.getInt("bass_boost_percent", 0),
-            trebleClarityPercent = prefs.getInt("treble_clarity_percent", 0),
             airBandEnabled = prefs.getBoolean("air_band_enabled", false),
             airBandGainDb = prefs.getFloat("air_band_gain_db", 0f),
             bassPunchEnabled = prefs.getBoolean("bass_punch_enabled", false),
@@ -259,41 +240,6 @@ class UserPreferencesRepository(context: Context) {
         _userPreferences.value = _userPreferences.value.copy(dspEnabled = enabled)
     }
 
-    fun updateEqPreset(presetName: String, gains: FloatArray) {
-        val editor = prefs.edit().putString("eq_preset_name", presetName)
-        if (gains.size >= 5) {
-            editor.putFloat("eq_band_0", gains[0])
-            editor.putFloat("eq_band_1", gains[1])
-            editor.putFloat("eq_band_2", gains[2])
-            editor.putFloat("eq_band_3", gains[3])
-            editor.putFloat("eq_band_4", gains[4])
-        }
-        editor.apply()
-        _userPreferences.value = _userPreferences.value.copy(
-            eqPresetName = presetName,
-            eqBand0 = if (gains.size > 0) gains[0] else 0f,
-            eqBand1 = if (gains.size > 1) gains[1] else 0f,
-            eqBand2 = if (gains.size > 2) gains[2] else 0f,
-            eqBand3 = if (gains.size > 3) gains[3] else 0f,
-            eqBand4 = if (gains.size > 4) gains[4] else 0f
-        )
-    }
-
-    fun updateEqBand(bandIndex: Int, gainDb: Float) {
-        val clamped = gainDb.coerceIn(-12f, 12f)
-        val key = "eq_band_$bandIndex"
-        prefs.edit().putFloat(key, clamped).putString("eq_preset_name", "Custom").apply()
-        val current = _userPreferences.value
-        _userPreferences.value = when (bandIndex) {
-            0 -> current.copy(eqBand0 = clamped, eqPresetName = "Custom")
-            1 -> current.copy(eqBand1 = clamped, eqPresetName = "Custom")
-            2 -> current.copy(eqBand2 = clamped, eqPresetName = "Custom")
-            3 -> current.copy(eqBand3 = clamped, eqPresetName = "Custom")
-            4 -> current.copy(eqBand4 = clamped, eqPresetName = "Custom")
-            else -> current
-        }
-    }
-
     fun updateSoftLimiter(enabled: Boolean) {
         prefs.edit().putBoolean("soft_limiter_enabled", enabled).apply()
         _userPreferences.value = _userPreferences.value.copy(softLimiterEnabled = enabled)
@@ -303,18 +249,6 @@ class UserPreferencesRepository(context: Context) {
         val clamped = trimDb.coerceIn(-12f, 12f)
         prefs.edit().putFloat("limiter_trim_db", clamped).apply()
         _userPreferences.value = _userPreferences.value.copy(limiterTrimDb = clamped)
-    }
-
-    fun updateBassBoost(percent: Int) {
-        val clamped = percent.coerceIn(0, 100)
-        prefs.edit().putInt("bass_boost_percent", clamped).apply()
-        _userPreferences.value = _userPreferences.value.copy(bassBoostPercent = clamped)
-    }
-
-    fun updateTrebleClarity(percent: Int) {
-        val clamped = percent.coerceIn(0, 100)
-        prefs.edit().putInt("treble_clarity_percent", clamped).apply()
-        _userPreferences.value = _userPreferences.value.copy(trebleClarityPercent = clamped)
     }
 
     fun updateMutePhoneWhileStreaming(enabled: Boolean) {
