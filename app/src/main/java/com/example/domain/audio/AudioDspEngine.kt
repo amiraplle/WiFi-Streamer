@@ -32,7 +32,7 @@ class AudioDspEngine {
     )
 
     @Volatile
-    var isEnabled: Boolean = false
+    var isEnabled: Boolean = true
 
     @Volatile
     var isSoftLimiterEnabled: Boolean = true
@@ -42,19 +42,28 @@ class AudioDspEngine {
 
     @Volatile
     var airBandEnabled: Boolean = false
+        set(value) {
+            field = value
+            if (value) isEnabled = true
+        }
 
     @Volatile
     var airBandGainDb: Float = 0f
         set(value) {
-            val clamped = value.coerceIn(0f, 6f)
+            val clamped = value.coerceIn(0f, 12f)
             if (field != clamped) {
                 field = clamped
+                if (clamped > 0f) isEnabled = true
                 recomputeCoefficients()
             }
         }
 
     @Volatile
     var bassPunchEnabled: Boolean = false
+        set(value) {
+            field = value
+            if (value) isEnabled = true
+        }
 
     @Volatile
     var bassPunchIntensity: Int = 50
@@ -62,20 +71,30 @@ class AudioDspEngine {
             val clamped = value.coerceIn(0, 100)
             if (field != clamped) {
                 field = clamped
+                if (clamped > 0) isEnabled = true
                 recomputeCoefficients()
             }
         }
 
     @Volatile
     var subBassCutEnabled: Boolean = false
+        set(value) {
+            field = value
+            if (value) isEnabled = true
+        }
 
     @Volatile
     var stereoWidenerEnabled: Boolean = false
+        set(value) {
+            field = value
+            if (value) isEnabled = true
+        }
 
     @Volatile
     var stereoWidthPercent: Int = 125
         set(value) {
-            field = value.coerceIn(100, 150)
+            field = value.coerceIn(100, 180)
+            if (field > 100) isEnabled = true
         }
 
     // Filter history registers (audio processing thread only)
@@ -133,25 +152,25 @@ class AudioDspEngine {
     private fun computeNewCoeffs(sampleRate: Int, airGainDb: Float, punchIntensity: Int): DspCoeffs {
         val Fs = sampleRate.toDouble().coerceAtLeast(8000.0)
 
-        // 1. Air Band (14 kHz High Shelf)
+        // 1. Air Band (10 kHz High Shelf for audible crystalline clarity & presence)
         val air = FloatArray(5)
-        computeHighShelfCoeffs(Fs, 14000.0, airGainDb.toDouble(), 0.707, air)
+        computeHighShelfCoeffs(Fs, 10000.0, airGainDb.toDouble(), 0.707, air)
 
-        // 2. Bass Punch (65 Hz Bell Boost) & Mud-Cut (280 Hz Bell Cut)
-        val punchGainDb = (punchIntensity / 100.0) * 4.5
-        val mudCutGainDb = (punchIntensity / 100.0) * -2.5
+        // 2. Bass Punch (85 Hz True Kick / Punch Bell Boost up to +12 dB)
+        val punchGainDb = (punchIntensity / 100.0) * 12.0
+        val mudCutGainDb = (punchIntensity / 100.0) * -1.5
         val punch = FloatArray(5)
         val mudCut = FloatArray(5)
-        computePeakingCoeffs(Fs, 65.0, punchGainDb, 1.4, punch)
-        computePeakingCoeffs(Fs, 280.0, mudCutGainDb, 1.8, mudCut)
+        computePeakingCoeffs(Fs, 85.0, punchGainDb, 1.3, punch)
+        computePeakingCoeffs(Fs, 300.0, mudCutGainDb, 1.5, mudCut)
 
-        // 3. Sub-Bass Rumble Cut (28 Hz 2nd-order Butterworth HPF)
+        // 3. Sub-Bass Rumble Cut (32 Hz 2nd-order Butterworth HPF)
         val subCut = FloatArray(5)
-        computeHpfCoeffs(Fs, 28.0, 0.707, subCut)
+        computeHpfCoeffs(Fs, 32.0, 0.707, subCut)
 
-        // 4. Stereo Widener crossover alpha (150 Hz LPF)
+        // 4. Stereo Widener crossover alpha (160 Hz LPF)
         val dt = 1.0 / Fs
-        val rc = 1.0 / (2.0 * Math.PI * 150.0)
+        val rc = 1.0 / (2.0 * Math.PI * 160.0)
         val alpha = (dt / (rc + dt)).toFloat().coerceIn(0.001f, 0.5f)
 
         return DspCoeffs(air, punch, mudCut, subCut, alpha)
@@ -272,24 +291,24 @@ class AudioDspEngine {
         val masterEnabled = isEnabled
         val applyLimiter = isSoftLimiterEnabled
         val currentTrim = limiterTrimDb
-        val applyAir = airBandEnabled && airBandGainDb > 0f
-        val applyPunch = bassPunchEnabled && bassPunchIntensity > 0
-        val applySubCut = subBassCutEnabled
-        val applyWidener = stereoWidenerEnabled && channels == 2 && stereoWidthPercent > 100
+        val applyAir = (masterEnabled || airBandEnabled) && airBandGainDb > 0f
+        val applyPunch = (masterEnabled || bassPunchEnabled) && bassPunchIntensity > 0
+        val applySubCut = masterEnabled && subBassCutEnabled
+        val applyWidener = (masterEnabled || stereoWidenerEnabled) && channels == 2 && stereoWidthPercent > 100
 
         val trimGain = if (currentTrim != 0f) 10.0.pow(currentTrim.toDouble() / 20.0).toFloat() else 1.0f
 
-        // Fast-path bypass check: if master DSP is disabled and limiter is disabled with 0 trim, skip immediately
-        if (!masterEnabled && !applyLimiter && currentTrim == 0f) {
+        // Fast-path bypass check: if nothing is enabled and trim is 0, skip immediately
+        if (!applyAir && !applyPunch && !applySubCut && !applyWidener && !applyLimiter && currentTrim == 0f) {
             return
         }
 
         val coeffs = activeCoeffs
 
         when (bitDepth) {
-            16 -> process16Bit(buffer, length, channels, masterEnabled, applyLimiter, trimGain, applyAir, applyPunch, applySubCut, applyWidener, coeffs)
-            24 -> process24Bit(buffer, length, channels, masterEnabled, applyLimiter, trimGain, applyAir, applyPunch, applySubCut, applyWidener, coeffs)
-            32 -> process32Bit(buffer, length, channels, masterEnabled, applyLimiter, trimGain, applyAir, applyPunch, applySubCut, applyWidener, coeffs)
+            16 -> process16Bit(buffer, length, channels, true, applyLimiter, trimGain, applyAir, applyPunch, applySubCut, applyWidener, coeffs)
+            24 -> process24Bit(buffer, length, channels, true, applyLimiter, trimGain, applyAir, applyPunch, applySubCut, applyWidener, coeffs)
+            32 -> process32Bit(buffer, length, channels, true, applyLimiter, trimGain, applyAir, applyPunch, applySubCut, applyWidener, coeffs)
         }
     }
 

@@ -222,12 +222,12 @@ fun RealTimeDspBottomSheetContent(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text("Gain", fontSize = 10.sp, color = TextSecondary)
+                        Text("Gain", fontSize = 11.sp, color = TextSecondary)
                         Slider(
                             value = prefs.airBandGainDb,
                             onValueChange = onAirBandGainChange,
-                            valueRange = 0f..6f,
-                            steps = 11,
+                            valueRange = 0f..10f,
+                            steps = 19,
                             modifier = Modifier.weight(1f).testTag("modal_air_band_slider"),
                             colors = SliderDefaults.colors(thumbColor = StreamEmerald, activeTrackColor = StreamEmerald, inactiveTrackColor = Color(0xFF2B2B3C))
                         )
@@ -278,16 +278,17 @@ fun RealTimeDspBottomSheetContent(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text("Punch", fontSize = 10.sp, color = TextSecondary)
+                        Text("Punch", fontSize = 11.sp, color = TextSecondary)
                         Slider(
                             value = prefs.bassPunchIntensity.toFloat(),
                             onValueChange = { onBassPunchIntensityChange(it.toInt()) },
-                            valueRange = 1f..5f,
-                            steps = 3,
+                            valueRange = 0f..100f,
+                            steps = 19,
                             modifier = Modifier.weight(1f).testTag("modal_bass_punch_slider"),
                             colors = SliderDefaults.colors(thumbColor = StreamEmerald, activeTrackColor = StreamEmerald, inactiveTrackColor = Color(0xFF2B2B3C))
                         )
-                        Text("Lvl ${prefs.bassPunchIntensity}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = StreamEmerald)
+                        val boostDb = (prefs.bassPunchIntensity / 100f) * 12f
+                        Text("+${String.format("%.1f", boostDb)} dB", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = StreamEmerald)
                     }
                 }
             }
@@ -368,11 +369,11 @@ fun RealTimeDspBottomSheetContent(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text("Width", fontSize = 10.sp, color = TextSecondary)
+                        Text("Width", fontSize = 11.sp, color = TextSecondary)
                         Slider(
                             value = prefs.stereoWidthPercent.toFloat(),
                             onValueChange = { onStereoWidthChange(it.toInt()) },
-                            valueRange = 100f..150f,
+                            valueRange = 100f..180f,
                             modifier = Modifier.weight(1f).testTag("modal_stereo_width_slider"),
                             colors = SliderDefaults.colors(thumbColor = StreamEmerald, activeTrackColor = StreamEmerald, inactiveTrackColor = Color(0xFF2B2B3C))
                         )
@@ -422,12 +423,12 @@ fun RealTimeDspBottomSheetContent(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text("Trim", fontSize = 10.sp, color = TextSecondary)
+                    Text("Trim", fontSize = 11.sp, color = TextSecondary)
                     Slider(
                         value = prefs.limiterTrimDb,
                         onValueChange = onLimiterTrimChange,
-                        valueRange = -6f..6f,
-                        steps = 23,
+                        valueRange = -12f..8f,
+                        steps = 39,
                         modifier = Modifier.weight(1f).testTag("modal_limiter_trim_slider"),
                         colors = SliderDefaults.colors(thumbColor = StreamEmerald, activeTrackColor = StreamEmerald, inactiveTrackColor = Color(0xFF2B2B3C))
                     )
@@ -440,7 +441,7 @@ fun RealTimeDspBottomSheetContent(
                             text = if (prefs.limiterTrimDb > 0f) "+${String.format("%.1f", prefs.limiterTrimDb)} dB"
                                    else if (prefs.limiterTrimDb < 0f) "${String.format("%.1f", prefs.limiterTrimDb)} dB"
                                    else "0 dB",
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (prefs.limiterTrimDb != 0f) StreamEmerald else Color.White,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)

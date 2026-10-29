@@ -265,7 +265,6 @@ fun ReceiversScreen(
                                 Text(
                                     text = phoneIp,
                                     style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.SemiBold,
                                     color = Color.White,
                                     fontSize = 12.sp
@@ -476,7 +475,6 @@ fun ReceiversScreen(
                             Text(
                                 text = pingResult ?: "",
                                 style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
                                 fontSize = 11.sp,
                                 color = Color.White,
                                 modifier = Modifier.padding(10.dp)
@@ -673,7 +671,6 @@ fun DiscoveredReceiverCard(
                     Text(
                         text = "${receiver.host}:${receiver.port}" + (receiver.pingMs?.let { " • ${it}ms" } ?: ""),
                         style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
                         color = TextSecondary,
                         maxLines = 1,
@@ -746,7 +743,6 @@ fun SavedReceiverCard(
                     Text(
                         text = "${receiver.host}:${receiver.tcpPort}",
                         style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
                         color = TextSecondary,
                         maxLines = 1,

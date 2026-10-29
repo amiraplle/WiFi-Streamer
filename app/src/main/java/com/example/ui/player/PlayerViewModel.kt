@@ -20,54 +20,60 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     val uiState: StateFlow<PlayerUiState> = playerManager.uiState
     val userPreferences = prefsRepo.userPreferences
 
+    private fun notifyDspEngines() {
+        val current = userPreferences.value
+        playerManager.updateDspSettings(current)
+        com.example.service.StreamingService.instance?.updateDspSettings(current)
+    }
+
     fun updateDspEnabled(enabled: Boolean) {
         prefsRepo.updateDspEnabled(enabled)
-        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+        notifyDspEngines()
     }
 
     fun updateSoftLimiter(enabled: Boolean) {
         prefsRepo.updateSoftLimiter(enabled)
-        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+        notifyDspEngines()
     }
 
     fun updateLimiterTrim(trimDb: Float) {
         prefsRepo.updateLimiterTrim(trimDb)
-        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+        notifyDspEngines()
     }
 
     fun updateAirBandEnabled(enabled: Boolean) {
         prefsRepo.updateAirBandEnabled(enabled)
-        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+        notifyDspEngines()
     }
 
     fun updateAirBandGain(gainDb: Float) {
         prefsRepo.updateAirBandGain(gainDb)
-        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+        notifyDspEngines()
     }
 
     fun updateBassPunchEnabled(enabled: Boolean) {
         prefsRepo.updateBassPunchEnabled(enabled)
-        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+        notifyDspEngines()
     }
 
     fun updateBassPunchIntensity(intensity: Int) {
         prefsRepo.updateBassPunchIntensity(intensity)
-        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+        notifyDspEngines()
     }
 
     fun updateSubBassCut(enabled: Boolean) {
         prefsRepo.updateSubBassCut(enabled)
-        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+        notifyDspEngines()
     }
 
     fun updateStereoWidener(enabled: Boolean) {
         prefsRepo.updateStereoWidener(enabled)
-        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+        notifyDspEngines()
     }
 
     fun updateStereoWidth(widthPercent: Int) {
         prefsRepo.updateStereoWidth(widthPercent)
-        com.example.service.StreamingService.instance?.updateDspSettings(userPreferences.value)
+        notifyDspEngines()
     }
 
 

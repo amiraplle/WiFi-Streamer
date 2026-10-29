@@ -1311,7 +1311,6 @@ fun TelemetryTile(
                 text = value,
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace,
                 color = valueColor,
                 fontSize = 12.sp
             )

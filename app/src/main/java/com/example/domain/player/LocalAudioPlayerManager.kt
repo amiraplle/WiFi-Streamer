@@ -111,6 +111,22 @@ class LocalAudioPlayerManager(
         preferencesRepository.updateAudioFormat(format)
     }
 
+    fun updateDspSettings(prefs: com.example.data.preferences.UserPreferences) {
+        dspEngine.apply {
+            setSampleRate(prefs.sampleRate)
+            isEnabled = prefs.dspEnabled
+            isSoftLimiterEnabled = prefs.softLimiterEnabled
+            limiterTrimDb = prefs.limiterTrimDb
+            airBandEnabled = prefs.airBandEnabled
+            airBandGainDb = prefs.airBandGainDb
+            bassPunchEnabled = prefs.bassPunchEnabled
+            bassPunchIntensity = prefs.bassPunchIntensity
+            subBassCutEnabled = prefs.subBassCutEnabled
+            stereoWidenerEnabled = prefs.stereoWidenerEnabled
+            stereoWidthPercent = prefs.stereoWidthPercent
+        }
+    }
+
     /**
      * Symmetrical 15ms Hann window soft fade-out (supports 16-bit and 24-bit PCM).
      * Ramps the instantaneous DAC output voltage down to 0, preventing clicks or pops.

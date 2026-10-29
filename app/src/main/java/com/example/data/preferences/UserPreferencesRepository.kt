@@ -246,7 +246,7 @@ class UserPreferencesRepository(context: Context) {
     }
 
     fun updateLimiterTrim(trimDb: Float) {
-        val clamped = trimDb.coerceIn(-12f, 12f)
+        val clamped = trimDb.coerceIn(-12f, 8f)
         prefs.edit().putFloat("limiter_trim_db", clamped).apply()
         _userPreferences.value = _userPreferences.value.copy(limiterTrimDb = clamped)
     }
@@ -257,40 +257,84 @@ class UserPreferencesRepository(context: Context) {
     }
 
     fun updateAirBandEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean("air_band_enabled", enabled).apply()
-        _userPreferences.value = _userPreferences.value.copy(airBandEnabled = enabled)
+        val editor = prefs.edit().putBoolean("air_band_enabled", enabled)
+        if (enabled) editor.putBoolean("dsp_enabled", true)
+        editor.apply()
+        _userPreferences.value = _userPreferences.value.copy(
+            airBandEnabled = enabled,
+            dspEnabled = if (enabled) true else _userPreferences.value.dspEnabled
+        )
     }
 
     fun updateAirBandGain(gainDb: Float) {
-        val clamped = gainDb.coerceIn(0f, 6f)
-        prefs.edit().putFloat("air_band_gain_db", clamped).apply()
-        _userPreferences.value = _userPreferences.value.copy(airBandGainDb = clamped)
+        val clamped = gainDb.coerceIn(0f, 10f)
+        val editor = prefs.edit().putFloat("air_band_gain_db", clamped)
+        if (clamped > 0f) {
+            editor.putBoolean("air_band_enabled", true).putBoolean("dsp_enabled", true)
+        }
+        editor.apply()
+        _userPreferences.value = _userPreferences.value.copy(
+            airBandGainDb = clamped,
+            airBandEnabled = if (clamped > 0f) true else _userPreferences.value.airBandEnabled,
+            dspEnabled = if (clamped > 0f) true else _userPreferences.value.dspEnabled
+        )
     }
 
     fun updateBassPunchEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean("bass_punch_enabled", enabled).apply()
-        _userPreferences.value = _userPreferences.value.copy(bassPunchEnabled = enabled)
+        val editor = prefs.edit().putBoolean("bass_punch_enabled", enabled)
+        if (enabled) editor.putBoolean("dsp_enabled", true)
+        editor.apply()
+        _userPreferences.value = _userPreferences.value.copy(
+            bassPunchEnabled = enabled,
+            dspEnabled = if (enabled) true else _userPreferences.value.dspEnabled
+        )
     }
 
     fun updateBassPunchIntensity(intensity: Int) {
         val clamped = intensity.coerceIn(0, 100)
-        prefs.edit().putInt("bass_punch_intensity", clamped).apply()
-        _userPreferences.value = _userPreferences.value.copy(bassPunchIntensity = clamped)
+        val editor = prefs.edit().putInt("bass_punch_intensity", clamped)
+        if (clamped > 0) {
+            editor.putBoolean("bass_punch_enabled", true).putBoolean("dsp_enabled", true)
+        }
+        editor.apply()
+        _userPreferences.value = _userPreferences.value.copy(
+            bassPunchIntensity = clamped,
+            bassPunchEnabled = if (clamped > 0) true else _userPreferences.value.bassPunchEnabled,
+            dspEnabled = if (clamped > 0) true else _userPreferences.value.dspEnabled
+        )
     }
 
     fun updateSubBassCut(enabled: Boolean) {
-        prefs.edit().putBoolean("sub_bass_cut_enabled", enabled).apply()
-        _userPreferences.value = _userPreferences.value.copy(subBassCutEnabled = enabled)
+        val editor = prefs.edit().putBoolean("sub_bass_cut_enabled", enabled)
+        if (enabled) editor.putBoolean("dsp_enabled", true)
+        editor.apply()
+        _userPreferences.value = _userPreferences.value.copy(
+            subBassCutEnabled = enabled,
+            dspEnabled = if (enabled) true else _userPreferences.value.dspEnabled
+        )
     }
 
     fun updateStereoWidener(enabled: Boolean) {
-        prefs.edit().putBoolean("stereo_widener_enabled", enabled).apply()
-        _userPreferences.value = _userPreferences.value.copy(stereoWidenerEnabled = enabled)
+        val editor = prefs.edit().putBoolean("stereo_widener_enabled", enabled)
+        if (enabled) editor.putBoolean("dsp_enabled", true)
+        editor.apply()
+        _userPreferences.value = _userPreferences.value.copy(
+            stereoWidenerEnabled = enabled,
+            dspEnabled = if (enabled) true else _userPreferences.value.dspEnabled
+        )
     }
 
     fun updateStereoWidth(widthPercent: Int) {
-        val clamped = widthPercent.coerceIn(100, 150)
-        prefs.edit().putInt("stereo_width_percent", clamped).apply()
-        _userPreferences.value = _userPreferences.value.copy(stereoWidthPercent = clamped)
+        val clamped = widthPercent.coerceIn(100, 180)
+        val editor = prefs.edit().putInt("stereo_width_percent", clamped)
+        if (clamped > 100) {
+            editor.putBoolean("stereo_widener_enabled", true).putBoolean("dsp_enabled", true)
+        }
+        editor.apply()
+        _userPreferences.value = _userPreferences.value.copy(
+            stereoWidthPercent = clamped,
+            stereoWidenerEnabled = if (clamped > 100) true else _userPreferences.value.stereoWidenerEnabled,
+            dspEnabled = if (clamped > 100) true else _userPreferences.value.dspEnabled
+        )
     }
 }

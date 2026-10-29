@@ -1203,7 +1203,6 @@ fun AudioInterruptionLogsDialog(
                                         text = log.formattedTime,
                                         style = MaterialTheme.typography.labelSmall,
                                         fontSize = 10.sp,
-                                        fontFamily = FontFamily.Monospace,
                                         color = TextTertiary
                                     )
                                 }

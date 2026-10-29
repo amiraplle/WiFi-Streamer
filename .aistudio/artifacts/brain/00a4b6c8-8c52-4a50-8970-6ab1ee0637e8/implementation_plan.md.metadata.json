@@ -1,6 +1,6 @@
 {
-  "summary":  "Comprehensive implementation plan for the host app overhaul focusing on minimalist player aesthetics, alignment and typography precision, click-free soft fade audio transitions across 16/24/32-bit streams, real-time audio visualizer, and live link telemetry.",
-  "updatedAt":  "2026-10-28T08:32:42.354901667Z",
+  "summary":  "Architecture and engineering blueprint for porting the proven C3 audio firmware to a headless ESP32 WROOM Classic Bluetooth A2DP receiver, followed by a roadmap for unified dual-mode transmission (Classic Bluetooth / Wi-Fi UDP) with Web OTA and I2S DAC output.",
+  "updatedAt":  "2026-10-28T09:02:49.527825324Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

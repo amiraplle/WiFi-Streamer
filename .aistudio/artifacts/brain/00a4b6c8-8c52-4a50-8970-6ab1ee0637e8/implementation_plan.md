@@ -1,106 +1,109 @@
-# Host App Overhaul & Audiophile Player Polish
+# Unified ESP32 Audio Receiver: WROOM Bluetooth & Dual-Mode Roadmap
 
-Elevate the Android host streamer into an ultra-fluid, minimalist, and jitter-free audiophile music player tailored for direct ESP32 + PCM5102A streaming.
+Architectural blueprint for porting the proven C3 firmware base to a **headless ESP32 WROOM Classic Bluetooth A2DP receiver**, followed by a roadmap for a **unified dual-transmission system (Bluetooth / Wi-Fi UDP)** with zero OLED display overhead.
 
 ### User Review & Critical Decisions
 
 > [!IMPORTANT]
-> The clarifying questions were skipped, so we are proceeding with an executive design and engineering plan focused on **minimalist elegance, strict layout alignment, silky audio transitions, and rock-solid PCM streaming**. Review the architectural decisions below:
-
-- **Confirmed Aesthetic**: Pure OLED dark aesthetic (`#0A0A0C` background, `#14141B` card containers, `#242432` crisp hairline borders, emerald/ice-blue status accents) with zero cluttered labels or wrapping text.
-- **Audio Transitions**: Frame-aligned 15ms Hann window soft fade-out and fade-in for track skips, pause, resume, and seeks across all bit depths (16-bit, 24-bit, and 32-bit) to eliminate any harsh click or DAC transient.
-- **Queue & Navigation**: Full native system gesture navigation compliance without redundant back buttons, combined with smooth swipe-to-remove and instant track-switching in the playlist queue.
-- **Live Link Telemetry**: Subtle real-time transmission pill on the player showing latency, packet pacing, and buffer health at a glance.
+> The plan below formalizes your exact architectural requirements:
+> - **100% Headless (Zero OLED)**: Completely remove U8g2 library, I2C polling loops, and font tables. This frees up ~30 KB of flash, ~12 KB of SRAM, and eliminates display interrupt jitter on the I2S audio clock.
+> - **Phase 1: Pure Bluetooth A2DP Receiver on ESP32 WROOM**: Port the C3 firmware core to the dual-core ESP32 WROOM, stripping UDP transmission while retaining the Web Configuration Portal, NVS Preferences, OTA Updates, and direct I2S DAC output (PCM5102A / UDA1334A).
+> - **Phase 2: Unified Transmission Firmware (BT / Wi-Fi UDP)**: Implement a clean radio arbitration state machine allowing the user to toggle between high-fidelity Wi-Fi UDP streaming (from our Android host app) and standard Classic Bluetooth A2DP (from any phone/laptop).
 
 ---
 
 ### 1. Overview & Core Concept
 
-* **What It Does**: Transforms the host Android app into a dedicated Hi-Res audio streamer and player that decodes local lossless/compressed files (FLAC, WAV, OPUS, MP3, AAC) and transmits 48 kHz 16/24/32-bit PCM directly over UDP to the ESP32 + PCM5102A DAC with zero phone speaker leak, real-time Audiophile DSP, and smooth touch controls.
-* **Target Audience**: Audiophiles and DIY audio builders streaming high-fidelity audio to ESP32-powered home speakers and DAC amplifiers.
-* **Key Value**: Combines clean, distraction-free visual design with studio-grade audio delivery, zero DAC muting, and instant real-time DSP tuning.
+* **What It Does**: Provides high-fidelity, direct I2S audio output to an external DAC (PCM5102A / UDA1334A) from an ESP32 WROOM receiver.
+  * In **Bluetooth Mode**: Functions as a standard high-quality Bluetooth A2DP Audio Sink (SBC/AAC) compatible with any mobile device or PC.
+  * In **Wi-Fi UDP Mode**: Receives frame-paced 48 kHz 16/24/32-bit PCM direct from our Android host app with ultra-low latency (15–300 ms).
+  * In **Both Modes**: Web-based configuration portal and OTA firmware update server remain accessible over local Wi-Fi.
+* **Why ESP32 WROOM**: The ESP32-C3 only features BLE (no classic audio profiles). The ESP32 WROOM features dual Tensilica Xtensa LX6 cores with dedicated hardware for Classic Bluetooth (BR/EDR), making high-bitrate A2DP Sink possible without audio stutter.
+* **Why Headless (No OLED)**: Eliminates display rendering bottlenecks, simplifies physical wiring (only 5 wires needed: 5V, GND, BCLK, LRCK, DOUT), and avoids I2C bus stalls during audio streaming.
 
 ---
 
-### 2. User Experience & Visual Design
+### 2. Phase 1: Pure WROOM Bluetooth A2DP Receiver
 
-* **Visual Identity & Theme**:
-  * **Background**: Deep OLED Black (`#0A0A0C`) with subtle radial gradients for depth.
-  * **Surfaces**: Glass-morphic rounded cards (`#13131A`) with 1dp border (`#22222E`) and 16dp corner radius.
-  * **Accents**: Neon Emerald (`#00E676`) for active streaming/DSP badges, Glacier Blue (`#80D8FF`) for track progress and volume, and warm gray (`#8E8E98`) for secondary metadata.
-  * **Typography**: Clean, tabular numerics for timestamps and bitrate; strict single-line truncation with marquee for long track titles to prevent messy line wrapping.
+In Phase 1, we create a clean, dedicated WROOM firmware:
 
-* **Key Screen Improvements**:
-  1. **Player Screen (`PlayerScreen.kt`)**:
-     * **Artwork & Visualizer**: High-resolution centered album art with rounded corners and subtle drop shadow, accompanied by a dynamic 16-bar audio visualizer reacting to playback.
-     * **Clean Control Cluster**: Balanced 48dp touch targets for Play/Pause, Skip Next, Skip Previous, Shuffle, and Repeat with micro-haptic ripples.
-     * **Format & DSP Pill Bar**: Symmetrical row hosting the DAC Format chip (`16-bit` / `24-bit` / `32-bit • 48 kHz`) and the one-tap DSP pop-up trigger.
-     * **Playlist Queue**: Redesigned list items with crisp typography, track index badges, format pills, and swipe-to-dismiss.
-  2. **Home Screen (`HomeScreen.kt`)**:
-     * Perfectly aligned network connection header and direct stream action cards.
-     * Unified Audiophile DSP trigger sharing the exact bottom sheet modal as the player.
-  3. **Settings Screen (`SettingsScreen.kt`)**:
-     * Fluid continuous slider from **15 ms to 300 ms** for target buffer/latency with real-time feedback.
-     * Clean categorization: *Network & Receiver*, *Audio Pipeline & DAC Format*, *Audiophile DSP Engine*, and *Diagnostics*.
-
----
-
-### 3. Key Product Decisions & Trade-Offs
-
-* **Decision 1: Frame-Aligned Hann Window Audio Ramping**
-  * *Approach*: Compute Hann window curves based on exact frame boundaries (4 bytes for 16-bit, 6 bytes for 24-bit, 8 bytes for 32-bit).
-  * *Why*: Previous harsh transitions were caused by unaligned byte truncations when changing tracks. Frame alignment prevents DAC clipping and static.
-* **Decision 2: Gesture-Only Sheet Dismissal & Navigation**
-  * *Approach*: Decouple all secondary sheets from hardcoded back buttons, relying exclusively on Android Predictive Back and downward swipe gestures.
-  * *Why*: Eliminates visual clutter while making the app feel native and responsive.
-* **Decision 3: Zero-Allocation Audio Visualizer**
-  * *Approach*: Extract peak sample amplitudes directly from the active PCM decoding loop into a thread-safe ring buffer, rendering animated Compose Canvas bars with no memory allocations on the UI thread.
-  * *Why*: Delivers visual feedback without generating garbage collection pauses that could cause audio buffer underruns.
+#### Code Stripping & Optimization:
+1. **Remove OLED Stack**:
+   - Delete `#include <U8g2lib.h>` and `#include <Wire.h>`.
+   - Remove OLED pin definitions (`OLED_SDA`, `OLED_SCL`), display refresh timers, and rendering routines.
+2. **Remove UDP Streaming Engine**:
+   - Remove `WiFiUDP udpClient`, packet parsing loops, jitter buffer pacing, and UDP socket bindings.
+3. **Integrate Bluetooth A2DP Sink**:
+   - Use the official ESP-IDF / Arduino `BluetoothA2DPSink` pipeline.
+   - Core 1 handles A2DP decoding (SBC/AAC) and pushes decoded PCM directly into the I2S DMA buffer.
+   - Core 0 runs the lightweight Wi-Fi AP/STA web server for Web OTA and setting adjustments.
+4. **I2S Pin Mapping for ESP32 WROOM**:
+   - Default classic WROOM I2S pins:
+     - `I2S_BCLK_PIN = 26` (Bit Clock)
+     - `I2S_LRCLK_PIN = 25` (Word Select / Left-Right Clock)
+     - `I2S_DOUT_PIN = 22` (Data Out to PCM5102A / UDA1334A)
+     - (Pins are user-configurable via Web UI / NVS).
 
 ---
 
-### 4. Technical Architecture & Data Strategy
+### 3. Phase 2: Unified Dual-Transmission Architecture
+
+Phase 2 combines both modes into a single, switchable firmware:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      Host Application                       │
-├───────────────────────────────┬─────────────────────────────┤
-│        UI Layer               │        Audio Pipeline       │
-│  ┌─────────────────────────┐  │  ┌────────────────────────┐ │
-│  │ HomeScreen / PlayerView │  │  │ MediaCodec + Extractor │ │
-│  │ (Jetpack Compose M3)    │  │  │ (FLAC / OPUS / WAV)    │ │
-│  └────────────┬────────────┘  │  └───────────┬────────────┘ │
-│               │               │              ▼              │
-│               ▼               │  ┌────────────────────────┐ │
-│  ┌─────────────────────────┐  │  │   formatPcmStream()    │ │
-│  │ DspModalBottomSheet     │◄─┼──┤ (16 / 24 / 32-bit 48k) │ │
-│  │ (Air/Bass/Limiter/Width)│  │  └───────────┬────────────┘ │
-│  └────────────┬────────────┘  │              ▼              │
-│               │               │  ┌────────────────────────┐ │
-│               ▼               │  │     AudioDspEngine     │ │
-│  ┌─────────────────────────┐  │  │ (Atomic Snapshots/HPF) │ │
-│  │ UserPreferencesRepo     │  │  └───────────┬────────────┘ │
-│  │ (15-300ms Buffer / Vol) │  │              ▼              │
-│  └────────────┬────────────┘  │  ┌────────────────────────┐ │
-│               │               │  │    AudioRingBuffer     │ │
-│               │               │  └───────────┬────────────┘ │
-└───────────────┼───────────────┴──────────────┼──────────────┘
-                │                              │
-                ▼                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│        StreamingService & PacedAudioTransmitter             │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │ Paced UDP Transport (MTU-safe frame aligned datagrams)│  │
-│  └───────────────────────────┬───────────────────────────┘  │
-└──────────────────────────────┼──────────────────────────────┘
-                               │ UDP Port 50005 (15-300ms)
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│          ESP32-C3 Receiver + PCM5102A I2S DAC               │
-└─────────────────────────────────────────────────────────────┘
+│                 ESP32 WROOM Dual-Core SoC                   │
+├──────────────────────────────┬──────────────────────────────┤
+│      Core 0 (System & Web)   │   Core 1 (Real-Time Audio)   │
+│  ┌────────────────────────┐  │  ┌────────────────────────┐  │
+│  │ WebServer (Port 80)    │  │  │ Mode A: Bluetooth A2DP │  │
+│  │ (Settings & OTA)       │  │  │ (SBC / AAC Audio Sink) │  │
+│  └───────────┬────────────┘  │  └───────────┬────────────┘  │
+│              │               │              │               │
+│              ▼               │              ▼               │
+│  ┌────────────────────────┐  │  ┌────────────────────────┐  │
+│  │ Mode Controller (NVS)  │◄─┼──┤ Mode B: Wi-Fi UDP Rx   │  │
+│  │ [BT Sink vs. UDP Stream│  │  │ (Direct 48k PCM Stream)│  │
+│  └───────────┬────────────┘  │  └───────────┬────────────┘  │
+│              │               │              │               │
+│              │               │              ▼               │
+│              │               │  ┌────────────────────────┐  │
+│              │               │  │ I2S DMA Driver         │  │
+│              │               │  │ (BCLK: 26, LRC: 25,    │  │
+│              │               │  │  DOUT: 22 to DAC)      │  │
+│              │               │  └───────────┬────────────┘  │
+└──────────────┼───────────────┴──────────────┼───────────────┘
+               │                              │
+               ▼                              ▼
+     Wi-Fi Network (AP/STA)         External PCM5102A DAC
+     (OTA Updates & Controls)       (Analog Line-Out / Amp)
 ```
 
-* **Data Layer**:
-  * `UserPreferencesRepository`: Single source of truth for volume, target buffer (15–300 ms), bit depth (16/24/32-bit), and DSP settings.
-  * `LocalAudioPlayerManager`: Decodes audio files, applies soft Hann window curves, executes DSP, and transfers PCM directly to `AudioRingBuffer`.
-  * `StreamingService`: Manages paced UDP transmission, network monitoring, and system media notifications.
+#### RF Coexistence & Clean Mode Switching:
+Because the ESP32 shares a single 2.4 GHz radio between Wi-Fi and Classic Bluetooth:
+1. **Bluetooth Mode**:
+   - Classic Bluetooth A2DP Sink is active with highest radio priority.
+   - Wi-Fi operates in low-bandwidth station mode purely for servicing occasional HTTP requests (Web UI & OTA). UDP streaming socket is closed.
+2. **Wi-Fi UDP Mode**:
+   - Bluetooth stack is cleanly shut down (`esp_a2d_sink_deinit()` and `esp_bluedroid_disable()`) to free ~45 KB of dynamic heap.
+   - High-throughput UDP listening socket (Port 50005) receives uncompressed 48 kHz 16/24/32-bit PCM directly from the Android host app.
+3. **Switching Trigger**:
+   - Can be toggled on-the-fly via the Web Configuration Portal or via a short press of a physical boot/GPIO button.
+
+---
+
+### 4. Android Host App Compatibility
+
+* **Wi-Fi Direct Streaming**: The host Android app continues direct streaming to the WROOM over UDP port 50005 using the existing low-latency engine (15–300 ms).
+* **Bluetooth Mode Awareness**: When the receiver is in Bluetooth mode, the user can simply connect via standard Android Bluetooth settings and route system audio through the device.
+* **Receivers Tab**: The Android app's "Receivers" screen can display the receiver's current mode (Wi-Fi UDP vs. Bluetooth) via the local HTTP telemetry endpoint.
+
+---
+
+### 5. Next Steps
+
+When you receive your ESP32 WROOM board:
+1. Review the proposed pinout and peripheral layout (I2S pins 26, 25, 22).
+2. Generate the standalone **Phase 1 Bluetooth A2DP firmware** (`wroom_bt_receiver.cpp`).
+3. Flash and verify audio fidelity with your PCM5102A DAC.
+4. Merge into the **Phase 2 Unified Dual-Mode Firmware** when ready!
