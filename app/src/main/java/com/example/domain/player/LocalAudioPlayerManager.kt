@@ -339,7 +339,11 @@ class LocalAudioPlayerManager(
         playbackJob?.cancel()
         playbackJob = null
         StreamingService.instance?.clearRingBuffer()
-        _uiState.value = _uiState.value.copy(playerState = PlayerState.IDLE, positionMs = 0L)
+        _uiState.value = _uiState.value.copy(
+            playerState = PlayerState.IDLE,
+            positionMs = 0L,
+            isStreamingActive = false
+        )
         if (stopService && StreamingService.instance != null && StreamingService.isStreaming && StreamingService.instance?.activeStreamSource == "DIRECT_AUDIO") {
             StreamingService.instance?.stopStreaming()
         }
@@ -458,7 +462,8 @@ class LocalAudioPlayerManager(
             _uiState.value = _uiState.value.copy(
                 durationMs = totalDurationMs,
                 sourceFormatInfo = "$codecDisplay • ${sourceSampleRate / 1000.0} kHz • ${if (sourceChannels == 2) "Stereo" else "Mono"}",
-                playerState = PlayerState.PLAYING
+                playerState = PlayerState.PLAYING,
+                isStreamingActive = true
             )
 
             codec = MediaCodec.createDecoderByType(mime)
@@ -481,12 +486,80 @@ class LocalAudioPlayerManager(
                 // Check pending seek
                 val seekMs = pendingSeekMs.getAndSet(-1L)
                 if (seekMs >= 0L) {
-                    writeSoftFadeOut(targetSampleRate, targetBitDepth)
                     val seekUs = seekMs * 1000L
-                    extractor.seekTo(seekUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+                    extractor.seekTo(seekUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
                     codec.flush()
+                    isEos = false
+                    dspEngine.resetHistory()
+                    lastSampleL = 0
+                    lastSampleR = 0
                     StreamingService.instance?.clearRingBuffer()
                     isStartingRamp = true
+
+                    // Instantly pre-decode audio for the new position so UDP transmitter never starves
+                    var primedBytes = 0
+                    val primeTargetBytes = 32_768 // ~170ms at 48k 16-bit stereo
+                    var retryCount = 0
+                    while (primedBytes < primeTargetBytes && !isEos && retryCount < 25 && currentCoroutineContext().isActive && !isStopped.get()) {
+                        val inIdx = codec.dequeueInputBuffer(4_000L)
+                        if (inIdx >= 0) {
+                            val inBuf = codec.getInputBuffer(inIdx)
+                            if (inBuf != null) {
+                                inBuf.clear()
+                                val sz = extractor.readSampleData(inBuf, 0)
+                                if (sz < 0) {
+                                    codec.queueInputBuffer(inIdx, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                    isEos = true
+                                } else {
+                                    codec.queueInputBuffer(inIdx, 0, sz, extractor.sampleTime, 0)
+                                    extractor.advance()
+                                }
+                            }
+                        }
+
+                        val outIdx = codec.dequeueOutputBuffer(bufferInfo, 4_000L)
+                        if (outIdx >= 0) {
+                            val outBuf = codec.getOutputBuffer(outIdx)
+                            if (outBuf != null && bufferInfo.size > 0) {
+                                outBuf.position(bufferInfo.offset)
+                                outBuf.limit(bufferInfo.offset + bufferInfo.size)
+                                val pcmChunk = ByteArray(bufferInfo.size)
+                                outBuf.get(pcmChunk)
+
+                                val activePrefs = preferencesRepository.userPreferences.value
+                                val activeTargetSampleRate = activePrefs.sampleRate
+                                val activeTargetBitDepth = activePrefs.bitDepth
+
+                                val formatted = formatPcmStream(
+                                    inputPcm = pcmChunk,
+                                    sourceSampleRate = sourceSampleRate,
+                                    sourceChannels = sourceChannels,
+                                    targetSampleRate = activeTargetSampleRate,
+                                    targetBitDepth = activeTargetBitDepth
+                                )
+
+                                if (formatted.isNotEmpty()) {
+                                    if (!activePrefs.bitPerfectMode) {
+                                        dspEngine.process(
+                                            buffer = formatted,
+                                            length = formatted.size,
+                                            bitDepth = activeTargetBitDepth,
+                                            channels = 2
+                                        )
+                                    }
+                                    if (isStartingRamp) {
+                                        applySoftRamp(formatted, activeTargetSampleRate, activeTargetBitDepth, isFadeOut = false)
+                                        isStartingRamp = false
+                                    }
+                                    StreamingService.instance?.writeDirectAudio(formatted, 0, formatted.size)
+                                    primedBytes += formatted.size
+                                }
+                            }
+                            codec.releaseOutputBuffer(outIdx, false)
+                        } else {
+                            retryCount++
+                        }
+                    }
                 }
 
                 // Regulate buffer cushion: if ring buffer has > 256KB (~1.5s), yield CPU to transmitter

@@ -174,10 +174,10 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun stopTransmission() {
-        playerManager.stopPlayback()
+        playerManager.stopPlayback(stopService = true)
     }
 
     fun stopPlayback() {
-        playerManager.stopPlayback()
+        playerManager.stopPlayback(stopService = true)
     }
 }

@@ -5,8 +5,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -37,6 +43,7 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.Audiotrack
@@ -154,12 +161,62 @@ fun PlayerScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Audio Player",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
+                    val isTransmitting = isPlaying || uiState.isStreamingActive || com.example.service.StreamingService.isStreaming
+                    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+                    val pulseScale by infiniteTransition.animateFloat(
+                        initialValue = 0.85f,
+                        targetValue = 1.25f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(900, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "dotPulse"
                     )
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Audio Player",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+
+                        Surface(
+                            shape = RoundedCornerShape(999.dp),
+                            color = if (isTransmitting) Color(0xFF0D2818) else Color(0xFF181B24),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isTransmitting) Color(0xFF1B5E20) else Color(0xFF282C3C)
+                            ),
+                            modifier = Modifier.testTag("transmission_indicator_badge")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .scale(if (isTransmitting) pulseScale else 1f)
+                                        .clip(CircleShape)
+                                        .background(if (isTransmitting) StreamEmerald else Color(0xFF6E7285))
+                                )
+                                Text(
+                                    text = if (isTransmitting) "TRANSMITTING" else "STANDBY",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.6.sp
+                                    ),
+                                    color = if (isTransmitting) StreamEmerald else Color(0xFF8E92A4)
+                                )
+                            }
+                        }
+                    }
                     Text(
                         text = if (savedFolder != null) "Folder: $savedFolder" else "Stream directly to ESP32 DAC",
                         style = MaterialTheme.typography.bodySmall,
@@ -405,6 +462,28 @@ fun PlayerScreen(
                                 contentDescription = if (isPlaying) "Pause" else "Play",
                                 tint = Color.Black,
                                 modifier = Modifier.size(28.dp)
+                            )
+                        }
+
+                        // Stop Button (Stops playback and resets timeline without closing the streaming session)
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF221517))
+                                .border(1.dp, Color(0xFF4B2327), CircleShape)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = ripple(color = Color(0xFFFF5449).copy(alpha = 0.2f))
+                                ) { viewModel.stopPlayback() }
+                                .testTag("player_stop_button"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Stop,
+                                contentDescription = "Stop",
+                                tint = Color(0xFFFF5449),
+                                modifier = Modifier.size(22.dp)
                             )
                         }
 
