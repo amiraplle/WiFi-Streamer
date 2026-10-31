@@ -294,22 +294,36 @@ fun HomeScreen(
                         }
                     }
 
-                    // Sleek status pill badge
+                    // Sleek status pill badge with live transmitting indicator
                     Surface(
                         color = statusColor.copy(alpha = 0.15f),
                         border = BorderStroke(1.dp, statusColor.copy(alpha = 0.35f)),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text(
-                            text = if (isPlayerTransmitting) "ACTIVE (DIRECT)" else telemetry.streamingState.name,
-                            color = statusColor,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 10.sp,
-                            maxLines = 1,
-                            softWrap = false,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
+                        ) {
+                            if (isStreaming || isPlayerTransmitting) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .scale(pulseScale)
+                                        .clip(CircleShape)
+                                        .background(StreamEmerald)
+                                )
+                            }
+                            Text(
+                                text = if (isPlayerTransmitting) "TRANSMITTING (DIRECT)" else if (isStreaming) "TRANSMITTING" else telemetry.streamingState.name,
+                                color = statusColor,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                     }
                 }
 
@@ -466,104 +480,32 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(modifier = Modifier.wrapContentSize(Alignment.Center)) {
-                        Surface(
-                            color = Color(0xFF1B1B24),
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(
-                                1.dp,
-                                if (formatDropdownExpanded) Color.White else Color(0xFF2A2A36)
-                            ),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable(enabled = !isStreaming && !isConnecting) {
-                                    formatDropdownExpanded = true
-                                }
-                                .testTag("audio_format_dropdown_trigger")
+                    Surface(
+                        color = Color(0xFF1B1B24),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, Color(0xFF2A2A36)),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .testTag("audio_format_dropdown_trigger")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Audiotrack,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                Text(
-                                    text = "${prefs.audioFormat.displayName} • ${prefs.audioFormat.bitrateKbps}k",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = TextPrimary,
-                                    fontSize = 12.sp
-                                )
-                                if (!isStreaming && !isConnecting) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.ArrowDropDown,
-                                        contentDescription = "Select Format",
-                                        tint = TextSecondary,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        DropdownMenu(
-                            expanded = formatDropdownExpanded,
-                            onDismissRequest = { formatDropdownExpanded = false },
-                            modifier = Modifier
-                                .background(Color(0xFF141418))
-                                .border(BorderStroke(1.dp, Color(0xFF2C2C38)), RoundedCornerShape(14.dp))
-                                .clip(RoundedCornerShape(14.dp))
-                                .padding(6.dp)
-                                .testTag("audio_format_dropdown_menu")
-                        ) {
-                            supportedFormats.forEach { cap ->
-                                val isSelected = prefs.audioFormat == cap.format
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 2.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(if (isSelected) Color.White else Color.Transparent)
-                                        .clickable {
-                                            viewModel.updateAudioFormat(cap.format)
-                                            formatDropdownExpanded = false
-                                        }
-                                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                                        .testTag("format_option_${cap.format.sampleRate}_${cap.format.channelCount}")
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column {
-                                            Text(
-                                                text = cap.format.displayName,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                color = if (isSelected) Color.Black else Color.White
-                                            )
-                                            Text(
-                                                text = cap.format.dacCompatibility,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Normal,
-                                                color = if (isSelected) Color(0xFF444444) else TextSecondary
-                                            )
-                                        }
-                                        Text(
-                                            text = "${cap.format.bitrateKbps}k",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isSelected) Color(0xFF333333) else TextSecondary
-                                        )
-                                    }
-                                }
-                            }
+                            Icon(
+                                imageVector = Icons.Outlined.Audiotrack,
+                                contentDescription = null,
+                                tint = StreamEmerald,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = "48.0 kHz • 16-bit • Stereo • 1536k",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary,
+                                fontSize = 12.sp
+                            )
                         }
                     }
 

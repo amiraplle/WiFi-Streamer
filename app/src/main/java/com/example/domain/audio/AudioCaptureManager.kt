@@ -98,11 +98,10 @@ class AudioCaptureManager(
             return false
         }
 
-        // Calculate chunk size according to latency preset (e.g. 10ms, 25ms, 50ms)
-        // Keep chunk size tight (10ms-25ms, max 4096 bytes) so AudioRecord.read() never blocks for 80ms!
-        val bytesPerMs = (sampleRate * format.frameSizeBytes) / 1000
-        val targetChunkSize = bytesPerMs * latencyPreset.durationMs
-        bufferSize = (targetChunkSize / format.frameSizeBytes * format.frameSizeBytes).coerceIn(format.frameSizeBytes * 10, 4096)
+        // Calculate chunk size strictly aligned to 16-bit stereo frames (4 bytes per frame)
+        val frameSize = 4
+        val targetFrames = ((sampleRate * latencyPreset.durationMs) / 1000).coerceIn(128, 1024)
+        bufferSize = targetFrames * frameSize
 
         // Initialize reusable byte array pool (16 buffers for high-elasticity burst handling)
         bufferQueue.clear()
@@ -260,47 +259,8 @@ class AudioCaptureManager(
             val bytesRead = record.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
 
             if (bytesRead > 0) {
-                val finalBuffer: ByteArray
-                val finalLength: Int
-                if (currentFormat.bitDepth == 32 && actualHardwareEncoding == AudioFormat.ENCODING_PCM_16BIT) {
-                    val sampleCount = bytesRead / 2
-                    val converted = ByteArray(sampleCount * 4)
-                    var srcIdx = 0
-                    var dstIdx = 0
-                    while (srcIdx + 1 < bytesRead) {
-                        val b0 = buffer[srcIdx]
-                        val b1 = buffer[srcIdx + 1]
-                        // 32-bit I2S slot: pad lower 16 bits with 0, upper 16 bits with sample
-                        converted[dstIdx] = 0
-                        converted[dstIdx + 1] = 0
-                        converted[dstIdx + 2] = b0
-                        converted[dstIdx + 3] = b1
-                        srcIdx += 2
-                        dstIdx += 4
-                    }
-                    finalBuffer = converted
-                    finalLength = dstIdx
-                } else if (currentFormat.bitDepth == 24 && actualHardwareEncoding == AudioFormat.ENCODING_PCM_16BIT) {
-                    val sampleCount = bytesRead / 2
-                    val converted = ByteArray(sampleCount * 3)
-                    var srcIdx = 0
-                    var dstIdx = 0
-                    while (srcIdx + 1 < bytesRead) {
-                        val b0 = buffer[srcIdx]
-                        val b1 = buffer[srcIdx + 1]
-                        // 24-bit packed: lower byte 0, upper 2 bytes from 16-bit
-                        converted[dstIdx] = 0
-                        converted[dstIdx + 1] = b0
-                        converted[dstIdx + 2] = b1
-                        srcIdx += 2
-                        dstIdx += 3
-                    }
-                    finalBuffer = converted
-                    finalLength = dstIdx
-                } else {
-                    finalBuffer = buffer
-                    finalLength = bytesRead
-                }
+                val finalBuffer = buffer
+                val finalLength = bytesRead
 
                 val now = System.currentTimeMillis()
                 if (stallStartTime > 0L) {
@@ -427,13 +387,21 @@ class AudioCaptureManager(
                 }
             } else if (bytesRead == AudioRecord.ERROR_BAD_VALUE) {
                 bufferQueue.offer(buffer)
-                AudioInterruptionLogger.log(
-                    category = "AudioRecord Error",
-                    description = "ERROR_BAD_VALUE: AudioRecord bad parameters."
-                )
-                Log.e(TAG, "AudioRecord ERROR_BAD_VALUE")
-                onCaptureStatusChanged(CaptureStatus.ERROR, "AudioRecord bad parameters")
-                break
+                Log.w(TAG, "AudioRecord ERROR_BAD_VALUE: Attempting graceful recreation with aligned parameters...")
+                try {
+                    Thread.sleep(30)
+                } catch (_: InterruptedException) {
+                    break
+                }
+                val recreated = recreateAudioRecord()
+                if (!recreated) {
+                    AudioInterruptionLogger.log(
+                        category = "AudioRecord Error",
+                        description = "ERROR_BAD_VALUE: AudioRecord parameters rejected."
+                    )
+                    onCaptureStatusChanged(CaptureStatus.ERROR, "AudioRecord bad parameters")
+                    break
+                }
             } else {
                 bufferQueue.offer(buffer)
                 try {

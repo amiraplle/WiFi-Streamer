@@ -146,34 +146,12 @@ class LocalAudioPlayerManager(
 
         for (f in 0 until rampFrames) {
             val factor = (0.5 * (1.0 + cos(Math.PI * f / rampFrames))).toFloat()
-            if (bitDepth == 32) {
-                val curL = (startL.toLong() * factor).toLong().coerceIn(-2147483648L, 2147483647L).toInt()
-                val curR = (startR.toLong() * factor).toLong().coerceIn(-2147483648L, 2147483647L).toInt()
-                fadeOutBytes[outIdx++] = (curL and 0xFF).toByte()
-                fadeOutBytes[outIdx++] = ((curL shr 8) and 0xFF).toByte()
-                fadeOutBytes[outIdx++] = ((curL shr 16) and 0xFF).toByte()
-                fadeOutBytes[outIdx++] = ((curL shr 24) and 0xFF).toByte()
-                fadeOutBytes[outIdx++] = (curR and 0xFF).toByte()
-                fadeOutBytes[outIdx++] = ((curR shr 8) and 0xFF).toByte()
-                fadeOutBytes[outIdx++] = ((curR shr 16) and 0xFF).toByte()
-                fadeOutBytes[outIdx++] = ((curR shr 24) and 0xFF).toByte()
-            } else if (bitDepth == 24) {
-                val curL = (startL * factor).toInt().coerceIn(-8388608, 8388607)
-                val curR = (startR * factor).toInt().coerceIn(-8388608, 8388607)
-                fadeOutBytes[outIdx++] = (curL and 0xFF).toByte()
-                fadeOutBytes[outIdx++] = ((curL shr 8) and 0xFF).toByte()
-                fadeOutBytes[outIdx++] = ((curL shr 16) and 0xFF).toByte()
-                fadeOutBytes[outIdx++] = (curR and 0xFF).toByte()
-                fadeOutBytes[outIdx++] = ((curR shr 8) and 0xFF).toByte()
-                fadeOutBytes[outIdx++] = ((curR shr 16) and 0xFF).toByte()
-            } else {
-                val curL = (startL * factor).toInt().coerceIn(-32768, 32767)
-                val curR = (startR * factor).toInt().coerceIn(-32768, 32767)
-                fadeOutBytes[outIdx++] = (curL and 0xFF).toByte()
-                fadeOutBytes[outIdx++] = ((curL shr 8) and 0xFF).toByte()
-                fadeOutBytes[outIdx++] = (curR and 0xFF).toByte()
-                fadeOutBytes[outIdx++] = ((curR shr 8) and 0xFF).toByte()
-            }
+            val curL = (startL * factor).toInt().coerceIn(-32768, 32767)
+            val curR = (startR * factor).toInt().coerceIn(-32768, 32767)
+            fadeOutBytes[outIdx++] = (curL and 0xFF).toByte()
+            fadeOutBytes[outIdx++] = ((curL shr 8) and 0xFF).toByte()
+            fadeOutBytes[outIdx++] = (curR and 0xFF).toByte()
+            fadeOutBytes[outIdx++] = ((curR shr 8) and 0xFF).toByte()
         }
         lastSampleL = 0
         lastSampleR = 0
@@ -491,9 +469,8 @@ class LocalAudioPlayerManager(
                     codec.flush()
                     isEos = false
                     dspEngine.resetHistory()
-                    lastSampleL = 0
-                    lastSampleR = 0
                     StreamingService.instance?.clearRingBuffer()
+                    StreamingService.instance?.resetPacerBuffering()
                     isStartingRamp = true
 
                     // Instantly pre-decode audio for the new position so UDP transmitter never starves
@@ -631,35 +608,7 @@ class LocalAudioPlayerManager(
                             }
 
                             // Capture last stereo sample in chunk for seamless soft fade-out
-                            if (activeTargetBitDepth == 32 && formattedPcm.size >= 8) {
-                                val offset = formattedPcm.size - 8
-                                val l0 = formattedPcm[offset].toInt() and 0xFF
-                                val l1 = formattedPcm[offset + 1].toInt() and 0xFF
-                                val l2 = formattedPcm[offset + 2].toInt() and 0xFF
-                                val l3 = formattedPcm[offset + 3].toInt() and 0xFF
-                                lastSampleL = (l3 shl 24) or (l2 shl 16) or (l1 shl 8) or l0
-
-                                val r0 = formattedPcm[offset + 4].toInt() and 0xFF
-                                val r1 = formattedPcm[offset + 5].toInt() and 0xFF
-                                val r2 = formattedPcm[offset + 6].toInt() and 0xFF
-                                val r3 = formattedPcm[offset + 7].toInt() and 0xFF
-                                lastSampleR = (r3 shl 24) or (r2 shl 16) or (r1 shl 8) or r0
-                            } else if (activeTargetBitDepth == 24 && formattedPcm.size >= 6) {
-                                val offset = formattedPcm.size - 6
-                                val l0 = formattedPcm[offset].toInt() and 0xFF
-                                val l1 = formattedPcm[offset + 1].toInt() and 0xFF
-                                val l2 = formattedPcm[offset + 2].toInt() and 0xFF
-                                var sL = (l2 shl 16) or (l1 shl 8) or l0
-                                if ((sL and 0x800000) != 0) sL = sL or 0xFF000000.toInt()
-                                lastSampleL = sL
-
-                                val r0 = formattedPcm[offset + 3].toInt() and 0xFF
-                                val r1 = formattedPcm[offset + 4].toInt() and 0xFF
-                                val r2 = formattedPcm[offset + 5].toInt() and 0xFF
-                                var sR = (r2 shl 16) or (r1 shl 8) or r0
-                                if ((sR and 0x800000) != 0) sR = sR or 0xFF000000.toInt()
-                                lastSampleR = sR
-                            } else if (activeTargetBitDepth == 16 && formattedPcm.size >= 4) {
+                            if (formattedPcm.size >= 4) {
                                 val offset = formattedPcm.size - 4
                                 val lLow = formattedPcm[offset].toInt() and 0xFF
                                 val lHigh = formattedPcm[offset + 1].toInt() and 0xFF
@@ -765,8 +714,7 @@ class LocalAudioPlayerManager(
         }
         if (targetFrames <= 0) return ByteArray(0)
 
-        val bytesPerSample = targetBitDepth / 8
-        val outputBytes = ByteArray(targetFrames * 2 * bytesPerSample) // always stereo output
+        val outputBytes = ByteArray(targetFrames * 4) // strictly 16-bit stereo (4 bytes/frame)
         var outIdx = 0
 
         val ratio = sourceSampleRate.toDouble() / targetSampleRate.toDouble()
@@ -798,34 +746,10 @@ class LocalAudioPlayerManager(
             val finalLeft = (left1 + frac * (left2 - left1)).toInt().coerceIn(-32768, 32767)
             val finalRight = (right1 + frac * (right2 - right1)).toInt().coerceIn(-32768, 32767)
 
-            if (targetBitDepth == 32) {
-                val s32L = finalLeft shl 16
-                outputBytes[outIdx++] = (s32L and 0xFF).toByte()
-                outputBytes[outIdx++] = ((s32L shr 8) and 0xFF).toByte()
-                outputBytes[outIdx++] = ((s32L shr 16) and 0xFF).toByte()
-                outputBytes[outIdx++] = ((s32L shr 24) and 0xFF).toByte()
-
-                val s32R = finalRight shl 16
-                outputBytes[outIdx++] = (s32R and 0xFF).toByte()
-                outputBytes[outIdx++] = ((s32R shr 8) and 0xFF).toByte()
-                outputBytes[outIdx++] = ((s32R shr 16) and 0xFF).toByte()
-                outputBytes[outIdx++] = ((s32R shr 24) and 0xFF).toByte()
-            } else if (targetBitDepth == 24) {
-                val s24L = finalLeft shl 8
-                outputBytes[outIdx++] = (s24L and 0xFF).toByte()
-                outputBytes[outIdx++] = ((s24L shr 8) and 0xFF).toByte()
-                outputBytes[outIdx++] = ((s24L shr 16) and 0xFF).toByte()
-
-                val s24R = finalRight shl 8
-                outputBytes[outIdx++] = (s24R and 0xFF).toByte()
-                outputBytes[outIdx++] = ((s24R shr 8) and 0xFF).toByte()
-                outputBytes[outIdx++] = ((s24R shr 16) and 0xFF).toByte()
-            } else {
-                outputBytes[outIdx++] = (finalLeft and 0xFF).toByte()
-                outputBytes[outIdx++] = ((finalLeft shr 8) and 0xFF).toByte()
-                outputBytes[outIdx++] = (finalRight and 0xFF).toByte()
-                outputBytes[outIdx++] = ((finalRight shr 8) and 0xFF).toByte()
-            }
+            outputBytes[outIdx++] = (finalLeft and 0xFF).toByte()
+            outputBytes[outIdx++] = ((finalLeft shr 8) and 0xFF).toByte()
+            outputBytes[outIdx++] = (finalRight and 0xFF).toByte()
+            outputBytes[outIdx++] = ((finalRight shr 8) and 0xFF).toByte()
         }
 
         return outputBytes
@@ -1188,65 +1112,21 @@ class LocalAudioPlayerManager(
                 (0.5 * (1.0 + cos(Math.PI * f / framesToProcess))).toFloat()
             }
 
-            if (bitDepth == 32) {
-                val l0 = pcm[idx].toInt() and 0xFF
-                val l1 = pcm[idx + 1].toInt() and 0xFF
-                val l2 = pcm[idx + 2].toInt() and 0xFF
-                val l3 = pcm[idx + 3].toInt() and 0xFF
-                val sampleL = ((l3 shl 24) or (l2 shl 16) or (l1 shl 8) or l0).toDouble()
-                val rampedL = (sampleL * factor).toLong().coerceIn(-2147483648L, 2147483647L).toInt()
-                pcm[idx] = (rampedL and 0xFF).toByte()
-                pcm[idx + 1] = ((rampedL shr 8) and 0xFF).toByte()
-                pcm[idx + 2] = ((rampedL shr 16) and 0xFF).toByte()
-                pcm[idx + 3] = ((rampedL shr 24) and 0xFF).toByte()
+            val l0 = pcm[idx].toInt() and 0xFF
+            val l1 = pcm[idx + 1].toInt() and 0xFF
+            var sampleL = (l1 shl 8) or l0
+            if ((sampleL and 0x8000) != 0) sampleL = sampleL or 0xFFFF0000.toInt()
+            val rampedL = (sampleL.toFloat() * factor).toInt().coerceIn(-32768, 32767)
+            pcm[idx] = (rampedL and 0xFF).toByte()
+            pcm[idx + 1] = ((rampedL shr 8) and 0xFF).toByte()
 
-                val r0 = pcm[idx + 4].toInt() and 0xFF
-                val r1 = pcm[idx + 5].toInt() and 0xFF
-                val r2 = pcm[idx + 6].toInt() and 0xFF
-                val r3 = pcm[idx + 7].toInt() and 0xFF
-                val sampleR = ((r3 shl 24) or (r2 shl 16) or (r1 shl 8) or r0).toDouble()
-                val rampedR = (sampleR * factor).toLong().coerceIn(-2147483648L, 2147483647L).toInt()
-                pcm[idx + 4] = (rampedR and 0xFF).toByte()
-                pcm[idx + 5] = ((rampedR shr 8) and 0xFF).toByte()
-                pcm[idx + 6] = ((rampedR shr 16) and 0xFF).toByte()
-                pcm[idx + 7] = ((rampedR shr 24) and 0xFF).toByte()
-            } else if (bitDepth == 24) {
-                val l0 = pcm[idx].toInt() and 0xFF
-                val l1 = pcm[idx + 1].toInt() and 0xFF
-                val l2 = pcm[idx + 2].toInt() and 0xFF
-                var sampleL = (l2 shl 16) or (l1 shl 8) or l0
-                if ((sampleL and 0x800000) != 0) sampleL = sampleL or 0xFF000000.toInt()
-                val rampedL = (sampleL.toFloat() * factor).toInt().coerceIn(-8388608, 8388607)
-                pcm[idx] = (rampedL and 0xFF).toByte()
-                pcm[idx + 1] = ((rampedL shr 8) and 0xFF).toByte()
-                pcm[idx + 2] = ((rampedL shr 16) and 0xFF).toByte()
-
-                val r0 = pcm[idx + 3].toInt() and 0xFF
-                val r1 = pcm[idx + 4].toInt() and 0xFF
-                val r2 = pcm[idx + 5].toInt() and 0xFF
-                var sampleR = (r2 shl 16) or (r1 shl 8) or r0
-                if ((sampleR and 0x800000) != 0) sampleR = sampleR or 0xFF000000.toInt()
-                val rampedR = (sampleR.toFloat() * factor).toInt().coerceIn(-8388608, 8388607)
-                pcm[idx + 3] = (rampedR and 0xFF).toByte()
-                pcm[idx + 4] = ((rampedR shr 8) and 0xFF).toByte()
-                pcm[idx + 5] = ((rampedR shr 16) and 0xFF).toByte()
-            } else {
-                val l0 = pcm[idx].toInt() and 0xFF
-                val l1 = pcm[idx + 1].toInt() and 0xFF
-                var sampleL = (l1 shl 8) or l0
-                if ((sampleL and 0x8000) != 0) sampleL = sampleL or 0xFFFF0000.toInt()
-                val rampedL = (sampleL.toFloat() * factor).toInt().coerceIn(-32768, 32767)
-                pcm[idx] = (rampedL and 0xFF).toByte()
-                pcm[idx + 1] = ((rampedL shr 8) and 0xFF).toByte()
-
-                val r0 = pcm[idx + 2].toInt() and 0xFF
-                val r1 = pcm[idx + 3].toInt() and 0xFF
-                var sampleR = (r1 shl 8) or r0
-                if ((sampleR and 0x8000) != 0) sampleR = sampleR or 0xFFFF0000.toInt()
-                val rampedR = (sampleR.toFloat() * factor).toInt().coerceIn(-32768, 32767)
-                pcm[idx + 2] = (rampedR and 0xFF).toByte()
-                pcm[idx + 3] = ((rampedR shr 8) and 0xFF).toByte()
-            }
+            val r0 = pcm[idx + 2].toInt() and 0xFF
+            val r1 = pcm[idx + 3].toInt() and 0xFF
+            var sampleR = (r1 shl 8) or r0
+            if ((sampleR and 0x8000) != 0) sampleR = sampleR or 0xFFFF0000.toInt()
+            val rampedR = (sampleR.toFloat() * factor).toInt().coerceIn(-32768, 32767)
+            pcm[idx + 2] = (rampedR and 0xFF).toByte()
+            pcm[idx + 3] = ((rampedR shr 8) and 0xFF).toByte()
             idx += frameSize
         }
     }

@@ -153,9 +153,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     val availableFormats = listOf(
-        com.example.model.AudioStreamFormat.FORMAT_48K_16BIT_STEREO,
-        com.example.model.AudioStreamFormat.FORMAT_48K_24BIT_STEREO,
-        com.example.model.AudioStreamFormat.FORMAT_48K_32BIT_STEREO
+        com.example.model.AudioStreamFormat.FORMAT_48K_16BIT_STEREO
     )
 
     fun updateAudioFormat(format: com.example.model.AudioStreamFormat) {

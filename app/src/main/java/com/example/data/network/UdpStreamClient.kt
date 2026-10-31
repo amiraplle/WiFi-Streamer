@@ -36,6 +36,7 @@ class UdpStreamClient(
     private var socket: DatagramSocket? = null
     private var targetAddress: InetAddress? = null
     private var targetPort: Int = 50005
+    private var lastKnownResolvedAddress: InetAddress? = null
 
     private val isConnected = AtomicBoolean(false)
     private val isManuallyStopped = AtomicBoolean(false)
@@ -61,7 +62,15 @@ class UdpStreamClient(
 
         return try {
             Log.i(TAG, "Initializing UDP audio stream to $host:$port (QoS=$qosEnabled)")
-            val address = InetAddress.getByName(host)
+            val address = try {
+                val resolved = InetAddress.getByName(host)
+                lastKnownResolvedAddress = resolved
+                resolved
+            } catch (e: Exception) {
+                lastKnownResolvedAddress ?: InetAddress.getByName("255.255.255.255").also {
+                    Log.w(TAG, "Host $host offline or unresolvable; starting UDP stream to broadcast 255.255.255.255")
+                }
+            }
             val newSocket = DatagramSocket()
 
             try {

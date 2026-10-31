@@ -47,13 +47,16 @@ class PacedAudioTransmitter(
     @Volatile
     var targetPreRollBytes: Int = 28800
 
+    @Volatile
+    private var forceBufferReset: Boolean = false
+
+    fun resetBufferingState() {
+        forceBufferReset = true
+    }
+
     fun getPacketSizeForFormat(format: AudioStreamFormat): Int {
-        val frameSize = format.frameSizeBytes.coerceAtLeast(1)
-        return when (format.bitDepth) {
-            24 -> 1152 // 192 frames * 6 bytes = 1152 bytes
-            32 -> 1024 // 128 frames * 8 bytes = 1024 bytes
-            else -> 1024 // 256 frames * 4 bytes = 1024 bytes
-        }
+        // 1024 bytes = 256 stereo frames at 16-bit 48kHz (5.33ms per packet)
+        return 1024
     }
 
     fun setTargetLatencyMs(targetMs: Int, format: AudioStreamFormat) {
@@ -117,6 +120,13 @@ class PacedAudioTransmitter(
             val packetSize = getPacketSizeForFormat(format)
             val bytesPerSec = (format.sampleRate.toLong() * format.frameSizeBytes).coerceAtLeast(1L)
             val packetDurationNs = (packetSize.toLong() * 1_000_000_000L) / bytesPerSec
+
+            if (forceBufferReset) {
+                forceBufferReset = false
+                isBuffering = false
+                consecutiveUnderflows = 0
+                nextPacketTimeNs = System.nanoTime()
+            }
 
             val available = ringBuffer.available
             val minCushionBytes = targetPreRollBytes.coerceIn(packetSize * 4, 64 * 1024)

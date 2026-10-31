@@ -304,12 +304,8 @@ class AudioDspEngine {
         }
 
         val coeffs = activeCoeffs
-
-        when (bitDepth) {
-            16 -> process16Bit(buffer, length, channels, true, applyLimiter, trimGain, applyAir, applyPunch, applySubCut, applyWidener, coeffs)
-            24 -> process24Bit(buffer, length, channels, true, applyLimiter, trimGain, applyAir, applyPunch, applySubCut, applyWidener, coeffs)
-            32 -> process32Bit(buffer, length, channels, true, applyLimiter, trimGain, applyAir, applyPunch, applySubCut, applyWidener, coeffs)
-        }
+        // Always use high-performance 16-bit processing
+        process16Bit(buffer, length, channels, true, applyLimiter, trimGain, applyAir, applyPunch, applySubCut, applyWidener, coeffs)
     }
 
     private fun process16Bit(

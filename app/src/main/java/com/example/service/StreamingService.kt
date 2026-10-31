@@ -1127,6 +1127,10 @@ class StreamingService : Service() {
         ringBuffer.clear()
     }
 
+    fun resetPacerBuffering() {
+        pacedTransmitter?.resetBufferingState()
+    }
+
     companion object {
         const val NOTIFICATION_ID = 50005
         const val ACTION_START = "com.example.service.action.START"

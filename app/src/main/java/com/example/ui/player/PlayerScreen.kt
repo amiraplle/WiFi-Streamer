@@ -465,25 +465,25 @@ fun PlayerScreen(
                             )
                         }
 
-                        // Stop Button (Stops playback and resets timeline without closing the streaming session)
+                        // Stop Button (Stops playback and stops the UDP streaming session)
                         Box(
                             modifier = Modifier
-                                .size(44.dp)
+                                .size(46.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF221517))
-                                .border(1.dp, Color(0xFF4B2327), CircleShape)
+                                .background(Color(0xFF2A1517))
+                                .border(1.5.dp, Color(0xFFEF4444), CircleShape)
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
-                                    indication = ripple(color = Color(0xFFFF5449).copy(alpha = 0.2f))
+                                    indication = ripple(color = Color(0xFFFF5449).copy(alpha = 0.3f))
                                 ) { viewModel.stopPlayback() }
                                 .testTag("player_stop_button"),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Stop,
-                                contentDescription = "Stop",
+                                contentDescription = "Stop Transmission",
                                 tint = Color(0xFFFF5449),
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(24.dp)
                             )
                         }
 
@@ -517,91 +517,40 @@ fun PlayerScreen(
                     }
 
                     // Bottom Card Row: Output Format Selector & DSP Tweaks Button
-                    var formatMenuExpanded by remember { mutableStateOf(false) }
-
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Format Selector Pill
-                        Box(modifier = Modifier.weight(1f)) {
-                            Surface(
-                                color = Color(0xFF141620),
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, Color(0xFF262938)),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable { formatMenuExpanded = true }
-                                    .testTag("player_format_selector_badge")
+                        // Format Badge
+                        Surface(
+                            color = Color(0xFF141620),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Color(0xFF262938)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .testTag("player_format_selector_badge")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        modifier = Modifier.weight(1f, fill = false)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Podcasts,
-                                            contentDescription = null,
-                                            tint = StreamEmerald,
-                                            modifier = Modifier.size(15.dp)
-                                        )
-                                        Text(
-                                            text = uiState.outputFormatInfo,
-                                            color = Color.White,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontWeight = FontWeight.Medium,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                    Icon(
-                                        imageVector = Icons.Outlined.ArrowDropDown,
-                                        contentDescription = "Select Format",
-                                        tint = Color(0xFFA0A4B8),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-
-                            DropdownMenu(
-                                expanded = formatMenuExpanded,
-                                onDismissRequest = { formatMenuExpanded = false },
-                                modifier = Modifier
-                                    .background(Color(0xFF141620))
-                                    .border(BorderStroke(1.dp, Color(0xFF2E3244)), RoundedCornerShape(12.dp))
-                                    .clip(RoundedCornerShape(12.dp))
-                            ) {
-                                viewModel.availableFormats.forEach { format ->
-                                    val isSelected = uiState.outputFormatInfo.contains("${format.sampleRate / 1000.0}") && uiState.outputFormatInfo.contains("${format.bitDepth}-bit")
-                                    DropdownMenuItem(
-                                        text = {
-                                            Column {
-                                                Text(
-                                                    text = format.displayName,
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                    color = if (isSelected) StreamEmerald else Color.White,
-                                                    fontSize = 13.sp
-                                                )
-                                                Text(
-                                                    text = format.dacCompatibility,
-                                                    fontSize = 11.sp,
-                                                    color = Color(0xFF888B9C)
-                                                )
-                                            }
-                                        },
-                                        onClick = {
-                                            viewModel.updateAudioFormat(format)
-                                            formatMenuExpanded = false
-                                        }
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Outlined.Podcasts,
+                                    contentDescription = null,
+                                    tint = StreamEmerald,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = "48.0 kHz • 16-bit • Stereo",
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
 
