@@ -5,11 +5,13 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.io.ByteArrayOutputStream
+import android.media.AudioFormat
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
@@ -17,6 +19,7 @@ import android.util.Log
 import kotlinx.coroutines.withContext
 import com.example.data.preferences.UserPreferencesRepository
 import com.example.domain.audio.AudioDspEngine
+import com.example.domain.audio.PcmAudioProcessor
 import com.example.model.AudioTrack
 import com.example.model.PlayerState
 import com.example.model.PlayerUiState
@@ -78,14 +81,14 @@ class LocalAudioPlayerManager(
             playlist = emptyList(),
             currentIndex = -1,
             currentTrack = null,
-            outputFormatInfo = "${initialPrefs.bitDepth}-bit • ${initialPrefs.sampleRate / 1000.0} kHz"
+            outputFormatInfo = "16-bit • 48.0 kHz"
         )
 
         // Observe global preferences to update the active output target format badge and DSP engine dynamically
         playerScope.launch {
             preferencesRepository.userPreferences.collect { prefs ->
                 _uiState.value = _uiState.value.copy(
-                    outputFormatInfo = "${prefs.bitDepth}-bit • ${prefs.sampleRate / 1000.0} kHz"
+                    outputFormatInfo = "16-bit • 48.0 kHz"
                 )
                 dspEngine.apply {
                     setSampleRate(prefs.sampleRate)
@@ -128,12 +131,11 @@ class LocalAudioPlayerManager(
     }
 
     /**
-     * Symmetrical 15ms Hann window soft fade-out (supports 16-bit and 24-bit PCM).
+     * Symmetrical 15ms Hann window soft fade-out (strictly 16-bit 48kHz stereo PCM).
      * Ramps the instantaneous DAC output voltage down to 0, preventing clicks or pops.
      */
-    private fun writeSoftFadeOut(sampleRate: Int, bitDepth: Int) {
-        val bytesPerSample = bitDepth / 8
-        val frameSize = bytesPerSample * 2
+    private fun writeSoftFadeOut(sampleRate: Int = 48000) {
+        val frameSize = 4 // strictly 16-bit stereo (4 bytes/frame)
         val rampFrames = (sampleRate * 15) / 1000 // 15ms
         if (rampFrames <= 0) return
 
@@ -164,8 +166,7 @@ class LocalAudioPlayerManager(
 
         // Soft fade out outgoing track if playing
         if (_uiState.value.playerState == PlayerState.PLAYING) {
-            val prefs = preferencesRepository.userPreferences.value
-            writeSoftFadeOut(prefs.sampleRate, prefs.bitDepth)
+            writeSoftFadeOut()
         }
 
         var track = list[index]
@@ -200,8 +201,7 @@ class LocalAudioPlayerManager(
         val state = _uiState.value.playerState
         when (state) {
             PlayerState.PLAYING -> {
-                val prefs = preferencesRepository.userPreferences.value
-                writeSoftFadeOut(prefs.sampleRate, prefs.bitDepth)
+                writeSoftFadeOut()
                 isPaused.set(true)
                 _uiState.value = _uiState.value.copy(playerState = PlayerState.PAUSED)
             }
@@ -309,8 +309,7 @@ class LocalAudioPlayerManager(
 
     fun stopPlayback(stopService: Boolean = true) {
         if (_uiState.value.playerState == PlayerState.PLAYING) {
-            val prefs = preferencesRepository.userPreferences.value
-            writeSoftFadeOut(prefs.sampleRate, prefs.bitDepth)
+            writeSoftFadeOut()
         }
         isStopped.set(true)
         isPaused.set(false)
@@ -406,11 +405,11 @@ class LocalAudioPlayerManager(
             extractor.selectTrack(audioTrackIndex)
 
             val mime = mediaFormat.getString(MediaFormat.KEY_MIME) ?: "audio/raw"
-            val sourceSampleRate = if (mediaFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+            val initialSampleRate = if (mediaFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
                 mediaFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             } else 48000
 
-            val sourceChannels = if (mediaFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
+            val initialChannels = if (mediaFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
                 mediaFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             } else 2
 
@@ -419,11 +418,6 @@ class LocalAudioPlayerManager(
             } else 0L
 
             val totalDurationMs = durationUs / 1000L
-
-            // Target preferences from Settings
-            val prefs = preferencesRepository.userPreferences.value
-            val targetSampleRate = prefs.sampleRate
-            val targetBitDepth = prefs.bitDepth
 
             val uriLower = track.uri.toString().lowercase()
             val titleLower = track.title.lowercase()
@@ -439,14 +433,52 @@ class LocalAudioPlayerManager(
 
             _uiState.value = _uiState.value.copy(
                 durationMs = totalDurationMs,
-                sourceFormatInfo = "$codecDisplay • ${sourceSampleRate / 1000.0} kHz • ${if (sourceChannels == 2) "Stereo" else "Mono"}",
+                sourceFormatInfo = "$codecDisplay • ${initialSampleRate / 1000.0} kHz • ${if (initialChannels == 2) "Stereo" else "Mono"}",
                 playerState = PlayerState.PLAYING,
                 isStreamingActive = true
             )
 
+            // Prefer 16-bit PCM output from decoder if supported
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                try {
+                    mediaFormat.setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
+                } catch (_: Throwable) {}
+            }
+
             codec = MediaCodec.createDecoderByType(mime)
             codec.configure(mediaFormat, null, null, 0)
             codec.start()
+
+            var activeSampleRate = initialSampleRate
+            var activeChannels = initialChannels
+            var activeEncoding = AudioFormat.ENCODING_PCM_16BIT
+
+            fun updateDecoderFormatInfo(fmt: MediaFormat) {
+                if (fmt.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+                    activeSampleRate = fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                }
+                if (fmt.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
+                    activeChannels = fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                }
+                if (fmt.containsKey(MediaFormat.KEY_PCM_ENCODING)) {
+                    activeEncoding = fmt.getInteger(MediaFormat.KEY_PCM_ENCODING)
+                }
+                val encStr = when (activeEncoding) {
+                    AudioFormat.ENCODING_PCM_FLOAT -> "Float-32"
+                    21 -> "24-bit"
+                    22 -> "32-bit"
+                    else -> "16-bit"
+                }
+                val chStr = when (activeChannels) {
+                    1 -> "Mono"
+                    2 -> "Stereo"
+                    else -> "${activeChannels}ch"
+                }
+                _uiState.value = _uiState.value.copy(
+                    sourceFormatInfo = "$codecDisplay • ${activeSampleRate / 1000.0} kHz • $chStr ($encStr)"
+                )
+                Log.i(TAG, "Decoder format updated: $codecDisplay, $activeSampleRate Hz, $activeChannels ch, encoding: $encStr")
+            }
 
             val bufferInfo = MediaCodec.BufferInfo()
             var isEos = false
@@ -503,29 +535,28 @@ class LocalAudioPlayerManager(
                                 val pcmChunk = ByteArray(bufferInfo.size)
                                 outBuf.get(pcmChunk)
 
-                                val activePrefs = preferencesRepository.userPreferences.value
-                                val activeTargetSampleRate = activePrefs.sampleRate
-                                val activeTargetBitDepth = activePrefs.bitDepth
-
-                                val formatted = formatPcmStream(
+                                val formatted = formatPcmTo16Bit48kStereo(
                                     inputPcm = pcmChunk,
-                                    sourceSampleRate = sourceSampleRate,
-                                    sourceChannels = sourceChannels,
-                                    targetSampleRate = activeTargetSampleRate,
-                                    targetBitDepth = activeTargetBitDepth
+                                    sourceSampleRate = activeSampleRate,
+                                    sourceChannels = activeChannels,
+                                    sourceEncoding = activeEncoding
                                 )
 
                                 if (formatted.isNotEmpty()) {
-                                    if (!activePrefs.bitPerfectMode) {
-                                        dspEngine.process(
-                                            buffer = formatted,
-                                            length = formatted.size,
-                                            bitDepth = activeTargetBitDepth,
-                                            channels = 2
-                                        )
-                                    }
+                                    val activePrefs = preferencesRepository.userPreferences.value
+                                    PcmAudioProcessor.processInPlace(
+                                        buffer = formatted,
+                                        length = formatted.size,
+                                        bitDepth = 16,
+                                        volumePercent = activePrefs.transmissionVolume,
+                                        isMuted = activePrefs.isMuted,
+                                        dspEngine = if (!activePrefs.bitPerfectMode) dspEngine else null,
+                                        channels = 2,
+                                        bitPerfectMode = activePrefs.bitPerfectMode,
+                                        ditherEnabled = activePrefs.ditherEnabled
+                                    )
                                     if (isStartingRamp) {
-                                        applySoftRamp(formatted, activeTargetSampleRate, activeTargetBitDepth, isFadeOut = false)
+                                        applySoftRamp(formatted, 48000, isFadeOut = false)
                                         isStartingRamp = false
                                     }
                                     StreamingService.instance?.writeDirectAudio(formatted, 0, formatted.size)
@@ -533,6 +564,8 @@ class LocalAudioPlayerManager(
                                 }
                             }
                             codec.releaseOutputBuffer(outIdx, false)
+                        } else if (outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                            updateDecoderFormatInfo(codec.outputFormat)
                         } else {
                             retryCount++
                         }
@@ -577,33 +610,30 @@ class LocalAudioPlayerManager(
                         val pcmBytes = ByteArray(bufferInfo.size)
                         outputBuffer.get(pcmBytes)
 
-                        // Format & resample to user's Settings choice (dynamic check allows on-the-fly 16->24 bit switching)
-                        val activePrefs = preferencesRepository.userPreferences.value
-                        val activeTargetSampleRate = activePrefs.sampleRate
-                        val activeTargetBitDepth = activePrefs.bitDepth
-
-                        val formattedPcm = formatPcmStream(
+                        val formattedPcm = formatPcmTo16Bit48kStereo(
                             inputPcm = pcmBytes,
-                            sourceSampleRate = sourceSampleRate,
-                            sourceChannels = sourceChannels,
-                            targetSampleRate = activeTargetSampleRate,
-                            targetBitDepth = activeTargetBitDepth
+                            sourceSampleRate = activeSampleRate,
+                            sourceChannels = activeChannels,
+                            sourceEncoding = activeEncoding
                         )
 
                         if (formattedPcm.isNotEmpty()) {
-                            // Apply real-time audiophile DSP processing (unless bit-perfect direct mode is active)
-                            if (!activePrefs.bitPerfectMode) {
-                                dspEngine.process(
-                                    buffer = formattedPcm,
-                                    length = formattedPcm.size,
-                                    bitDepth = activeTargetBitDepth,
-                                    channels = 2
-                                )
-                            }
+                            val activePrefs = preferencesRepository.userPreferences.value
+                            PcmAudioProcessor.processInPlace(
+                                buffer = formattedPcm,
+                                length = formattedPcm.size,
+                                bitDepth = 16,
+                                volumePercent = activePrefs.transmissionVolume,
+                                isMuted = activePrefs.isMuted,
+                                dspEngine = if (!activePrefs.bitPerfectMode) dspEngine else null,
+                                channels = 2,
+                                bitPerfectMode = activePrefs.bitPerfectMode,
+                                ditherEnabled = activePrefs.ditherEnabled
+                            )
 
                             // Apply 25ms anti-pop soft-ramp on track start or seek resume
                             if (isStartingRamp) {
-                                applySoftRamp(formattedPcm, activeTargetSampleRate, activeTargetBitDepth, isFadeOut = false)
+                                applySoftRamp(formattedPcm, 48000, isFadeOut = false)
                                 isStartingRamp = false
                             }
 
@@ -655,8 +685,7 @@ class LocalAudioPlayerManager(
                         break // Track ended
                     }
                 } else if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    val newFormat = codec.outputFormat
-                    Log.i(TAG, "Decoder output format changed: $newFormat")
+                    updateDecoderFormatInfo(codec.outputFormat)
                 }
             }
 
@@ -683,73 +712,193 @@ class LocalAudioPlayerManager(
     }
 
     /**
-     * Resamples and bit-converts decoded PCM samples to the user's active Settings choice.
+     * Converts any decoder PCM output (16-bit int, 32-bit float, 24-bit packed, 32-bit int,
+     * mono, stereo, or multi-channel, and any sample rate) into strictly 16-bit 48kHz stereo PCM.
      */
-    private fun formatPcmStream(
+    private fun formatPcmTo16Bit48kStereo(
         inputPcm: ByteArray,
         sourceSampleRate: Int,
         sourceChannels: Int,
-        targetSampleRate: Int,
-        targetBitDepth: Int
+        sourceEncoding: Int
     ): ByteArray {
-        if (inputPcm.size < 2 || sourceChannels <= 0 || sourceSampleRate <= 0) {
+        if (inputPcm.isEmpty() || sourceChannels <= 0 || sourceSampleRate <= 0) {
             return ByteArray(0)
         }
 
-        // Fast passthrough if source already matches target (standard 48kHz 16-bit stereo)
-        if (sourceSampleRate == targetSampleRate && sourceChannels == 2 && targetBitDepth == 16) {
+        // Fast zero-copy passthrough if already strictly standard 48kHz 16-bit stereo PCM
+        if (sourceSampleRate == 48000 &&
+            sourceChannels == 2 &&
+            sourceEncoding == AudioFormat.ENCODING_PCM_16BIT
+        ) {
             return inputPcm
         }
 
-        val shortBuffer = ByteBuffer.wrap(inputPcm).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
-        val totalSourceSamples = shortBuffer.remaining()
-        val sourceFrames = totalSourceSamples / sourceChannels
+        val bytesPerSample = when (sourceEncoding) {
+            AudioFormat.ENCODING_PCM_FLOAT -> 4
+            21 /* ENCODING_PCM_24BIT_PACKED */ -> 3
+            22 /* ENCODING_PCM_32BIT */ -> 4
+            else -> 2 // Default ENCODING_PCM_16BIT
+        }
+
+        val frameSizeBytes = bytesPerSample * sourceChannels
+        val sourceFrames = inputPcm.size / frameSizeBytes
         if (sourceFrames <= 0) return ByteArray(0)
 
-        // 1. Resample if necessary (linear interpolation)
-        val targetFrames = if (sourceSampleRate == targetSampleRate) {
+        val targetFrames = if (sourceSampleRate == 48000) {
             sourceFrames
         } else {
-            ((sourceFrames.toLong() * targetSampleRate) / sourceSampleRate).toInt()
+            ((sourceFrames.toLong() * 48000L) / sourceSampleRate).toInt()
         }
         if (targetFrames <= 0) return ByteArray(0)
 
-        val outputBytes = ByteArray(targetFrames * 4) // strictly 16-bit stereo (4 bytes/frame)
+        val outputBytes = ByteArray(targetFrames * 4) // strictly 16-bit stereo = 4 bytes/frame
         var outIdx = 0
 
-        val ratio = sourceSampleRate.toDouble() / targetSampleRate.toDouble()
+        val ratio = sourceSampleRate.toDouble() / 48000.0
+        val byteBuf = ByteBuffer.wrap(inputPcm).order(ByteOrder.LITTLE_ENDIAN)
 
-        for (i in 0 until targetFrames) {
-            val srcPos = i * ratio
-            val srcIndex = srcPos.toInt().coerceAtMost(sourceFrames - 1)
-            val nextIndex = (srcIndex + 1).coerceAtMost(sourceFrames - 1)
-            val frac = (srcPos - srcIndex).toFloat()
+        when (sourceEncoding) {
+            AudioFormat.ENCODING_PCM_FLOAT -> {
+                val floatBuf = byteBuf.asFloatBuffer()
+                for (i in 0 until targetFrames) {
+                    val srcPos = i * ratio
+                    val srcIndex = srcPos.toInt().coerceAtMost(sourceFrames - 1)
+                    val nextIndex = (srcIndex + 1).coerceAtMost(sourceFrames - 1)
+                    val frac = (srcPos - srcIndex).toFloat()
 
-            // Read source samples
-            val left1: Short
-            val right1: Short
-            val left2: Short
-            val right2: Short
+                    val fl1: Float
+                    val fr1: Float
+                    val fl2: Float
+                    val fr2: Float
 
-            if (sourceChannels == 1) {
-                left1 = shortBuffer.get(srcIndex)
-                right1 = left1
-                left2 = shortBuffer.get(nextIndex)
-                right2 = left2
-            } else {
-                left1 = shortBuffer.get(srcIndex * 2)
-                right1 = shortBuffer.get(srcIndex * 2 + 1)
-                left2 = shortBuffer.get(nextIndex * 2)
-                right2 = shortBuffer.get(nextIndex * 2 + 1)
+                    if (sourceChannels == 1) {
+                        fl1 = floatBuf.get(srcIndex)
+                        fr1 = fl1
+                        fl2 = floatBuf.get(nextIndex)
+                        fr2 = fl2
+                    } else {
+                        fl1 = floatBuf.get(srcIndex * sourceChannels)
+                        fr1 = floatBuf.get(srcIndex * sourceChannels + 1)
+                        fl2 = floatBuf.get(nextIndex * sourceChannels)
+                        fr2 = floatBuf.get(nextIndex * sourceChannels + 1)
+                    }
+
+                    val interpL = (fl1 + frac * (fl2 - fl1)).coerceIn(-1.0f, 1.0f)
+                    val interpR = (fr1 + frac * (fr2 - fr1)).coerceIn(-1.0f, 1.0f)
+
+                    val shortL = (interpL * 32767f).toInt().coerceIn(-32768, 32767)
+                    val shortR = (interpR * 32767f).toInt().coerceIn(-32768, 32767)
+
+                    outputBytes[outIdx++] = (shortL and 0xFF).toByte()
+                    outputBytes[outIdx++] = ((shortL shr 8) and 0xFF).toByte()
+                    outputBytes[outIdx++] = (shortR and 0xFF).toByte()
+                    outputBytes[outIdx++] = ((shortR shr 8) and 0xFF).toByte()
+                }
             }
+            21 /* ENCODING_PCM_24BIT_PACKED */ -> {
+                for (i in 0 until targetFrames) {
+                    val srcPos = i * ratio
+                    val srcIndex = srcPos.toInt().coerceAtMost(sourceFrames - 1)
+                    val nextIndex = (srcIndex + 1).coerceAtMost(sourceFrames - 1)
+                    val frac = (srcPos - srcIndex).toFloat()
 
-            val finalLeft = (left1 + frac * (left2 - left1)).toInt().coerceIn(-32768, 32767)
-            val finalRight = (right1 + frac * (right2 - right1)).toInt().coerceIn(-32768, 32767)
+                    fun read24Sample(frame: Int, ch: Int): Float {
+                        val offset = (frame * sourceChannels + ch) * 3
+                        if (offset + 2 >= inputPcm.size) return 0f
+                        val b0 = inputPcm[offset].toInt() and 0xFF
+                        val b1 = inputPcm[offset + 1].toInt() and 0xFF
+                        val b2 = inputPcm[offset + 2].toInt()
+                        var raw = (b2 shl 16) or (b1 shl 8) or b0
+                        if ((raw and 0x800000) != 0) raw = raw or 0xFF000000.toInt()
+                        return raw / 8388608.0f
+                    }
 
-            outputBytes[outIdx++] = (finalLeft and 0xFF).toByte()
-            outputBytes[outIdx++] = ((finalLeft shr 8) and 0xFF).toByte()
-            outputBytes[outIdx++] = (finalRight and 0xFF).toByte()
-            outputBytes[outIdx++] = ((finalRight shr 8) and 0xFF).toByte()
+                    val fl1 = read24Sample(srcIndex, 0)
+                    val fr1 = if (sourceChannels > 1) read24Sample(srcIndex, 1) else fl1
+                    val fl2 = read24Sample(nextIndex, 0)
+                    val fr2 = if (sourceChannels > 1) read24Sample(nextIndex, 1) else fl2
+
+                    val interpL = (fl1 + frac * (fl2 - fl1)).coerceIn(-1.0f, 1.0f)
+                    val interpR = (fr1 + frac * (fr2 - fr1)).coerceIn(-1.0f, 1.0f)
+
+                    val shortL = (interpL * 32767f).toInt().coerceIn(-32768, 32767)
+                    val shortR = (interpR * 32767f).toInt().coerceIn(-32768, 32767)
+
+                    outputBytes[outIdx++] = (shortL and 0xFF).toByte()
+                    outputBytes[outIdx++] = ((shortL shr 8) and 0xFF).toByte()
+                    outputBytes[outIdx++] = (shortR and 0xFF).toByte()
+                    outputBytes[outIdx++] = ((shortR shr 8) and 0xFF).toByte()
+                }
+            }
+            22 /* ENCODING_PCM_32BIT */ -> {
+                val intBuf = byteBuf.asIntBuffer()
+                for (i in 0 until targetFrames) {
+                    val srcPos = i * ratio
+                    val srcIndex = srcPos.toInt().coerceAtMost(sourceFrames - 1)
+                    val nextIndex = (srcIndex + 1).coerceAtMost(sourceFrames - 1)
+                    val frac = (srcPos - srcIndex).toFloat()
+
+                    val il1: Int
+                    val ir1: Int
+                    val il2: Int
+                    val ir2: Int
+
+                    if (sourceChannels == 1) {
+                        il1 = intBuf.get(srcIndex) shr 16
+                        ir1 = il1
+                        il2 = intBuf.get(nextIndex) shr 16
+                        ir2 = il2
+                    } else {
+                        il1 = intBuf.get(srcIndex * sourceChannels) shr 16
+                        ir1 = intBuf.get(srcIndex * sourceChannels + 1) shr 16
+                        il2 = intBuf.get(nextIndex * sourceChannels) shr 16
+                        ir2 = intBuf.get(nextIndex * sourceChannels + 1) shr 16
+                    }
+
+                    val finalL = (il1 + frac * (il2 - il1)).toInt().coerceIn(-32768, 32767)
+                    val finalR = (ir1 + frac * (ir2 - ir1)).toInt().coerceIn(-32768, 32767)
+
+                    outputBytes[outIdx++] = (finalL and 0xFF).toByte()
+                    outputBytes[outIdx++] = ((finalL shr 8) and 0xFF).toByte()
+                    outputBytes[outIdx++] = (finalR and 0xFF).toByte()
+                    outputBytes[outIdx++] = ((finalR shr 8) and 0xFF).toByte()
+                }
+            }
+            else -> {
+                // Standard ENCODING_PCM_16BIT
+                val shortBuf = byteBuf.asShortBuffer()
+                for (i in 0 until targetFrames) {
+                    val srcPos = i * ratio
+                    val srcIndex = srcPos.toInt().coerceAtMost(sourceFrames - 1)
+                    val nextIndex = (srcIndex + 1).coerceAtMost(sourceFrames - 1)
+                    val frac = (srcPos - srcIndex).toFloat()
+
+                    val left1: Short
+                    val right1: Short
+                    val left2: Short
+                    val right2: Short
+
+                    if (sourceChannels == 1) {
+                        left1 = shortBuf.get(srcIndex)
+                        right1 = left1
+                        left2 = shortBuf.get(nextIndex)
+                        right2 = left2
+                    } else {
+                        left1 = shortBuf.get(srcIndex * sourceChannels)
+                        right1 = shortBuf.get(srcIndex * sourceChannels + 1)
+                        left2 = shortBuf.get(nextIndex * sourceChannels)
+                        right2 = shortBuf.get(nextIndex * sourceChannels + 1)
+                    }
+
+                    val finalLeft = (left1 + frac * (left2 - left1)).toInt().coerceIn(-32768, 32767)
+                    val finalRight = (right1 + frac * (right2 - right1)).toInt().coerceIn(-32768, 32767)
+
+                    outputBytes[outIdx++] = (finalLeft and 0xFF).toByte()
+                    outputBytes[outIdx++] = ((finalLeft shr 8) and 0xFF).toByte()
+                    outputBytes[outIdx++] = (finalRight and 0xFF).toByte()
+                    outputBytes[outIdx++] = ((finalRight shr 8) and 0xFF).toByte()
+                }
+            }
         }
 
         return outputBytes
@@ -1097,9 +1246,8 @@ class LocalAudioPlayerManager(
         }
     }
 
-    private fun applySoftRamp(pcm: ByteArray, sampleRate: Int, bitDepth: Int, isFadeOut: Boolean = false) {
-        val bytesPerSample = bitDepth / 8
-        val frameSize = bytesPerSample * 2 // stereo
+    private fun applySoftRamp(pcm: ByteArray, sampleRate: Int = 48000, isFadeOut: Boolean = false) {
+        val frameSize = 4 // strictly 16-bit stereo (4 bytes/frame)
         val rampFrames = (sampleRate * 25) / 1000 // 25ms smooth ramp
         val framesToProcess = minOf(rampFrames, pcm.size / frameSize)
         if (framesToProcess <= 0) return
