@@ -177,19 +177,20 @@ fun HomeScreen(
 
     val statusColor by animateColorAsState(
         targetValue = when {
-            isPlayerTransmitting || telemetry.streamingState == StreamingState.STREAMING -> StreamEmerald
-            telemetry.streamingState == StreamingState.CONNECTING || telemetry.streamingState == StreamingState.RECONNECTING -> WarningAmber
+            isStreaming -> StreamEmerald
+            isConnecting -> WarningAmber
             telemetry.streamingState == StreamingState.ERROR || telemetry.streamingState == StreamingState.DISCONNECTED -> ErrorCoral
+            isPlayerTransmitting -> StreamEmerald
             else -> MaterialTheme.colorScheme.primary
         },
         label = "statusColor"
     )
 
-    // Pulse animation when streaming
+    // Pulse animation when streaming or waiting for device
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1f,
-        targetValue = if (isStreaming) 1.12f else 1f,
+        targetValue = if (isStreaming || isConnecting || isPlayerTransmitting) 1.12f else 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(900),
             repeatMode = RepeatMode.Reverse
@@ -305,17 +306,24 @@ fun HomeScreen(
                             horizontalArrangement = Arrangement.spacedBy(5.dp),
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
-                            if (isStreaming || isPlayerTransmitting) {
+                            if (isStreaming || isPlayerTransmitting || isConnecting) {
                                 Box(
                                     modifier = Modifier
                                         .size(6.dp)
                                         .scale(pulseScale)
                                         .clip(CircleShape)
-                                        .background(StreamEmerald)
+                                        .background(statusColor)
                                 )
                             }
                             Text(
-                                text = if (isPlayerTransmitting) "TRANSMITTING (DIRECT)" else if (isStreaming) "TRANSMITTING" else telemetry.streamingState.name,
+                                text = when {
+                                    isStreaming && isPlayerTransmitting -> "TRANSMITTING (DIRECT)"
+                                    isStreaming -> "TRANSMITTING"
+                                    isConnecting -> "NO DEVICE FOUND"
+                                    telemetry.streamingState == StreamingState.ERROR -> "ERROR"
+                                    telemetry.streamingState == StreamingState.DISCONNECTED -> "DISCONNECTED"
+                                    else -> "IDLE"
+                                },
                                 color = statusColor,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
@@ -453,14 +461,14 @@ fun HomeScreen(
                         .size(80.dp)
                         .scale(pulseScale)
                         .clip(CircleShape)
-                        .background(statusColor.copy(alpha = if (isStreaming) 0.16f else 0.08f)),
+                        .background(statusColor.copy(alpha = if (isStreaming || isConnecting || isPlayerTransmitting) 0.16f else 0.08f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
                         modifier = Modifier
                             .size(56.dp)
                             .clip(CircleShape)
-                            .background(statusColor.copy(alpha = if (isStreaming) 0.30f else 0.14f)),
+                            .background(statusColor.copy(alpha = if (isStreaming || isConnecting || isPlayerTransmitting) 0.30f else 0.14f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -1137,23 +1145,23 @@ fun HomeScreen(
                             )
                         }
                     }
-                } else if (isStreaming && telemetry.streamingState == StreamingState.CONNECTING) {
+                } else if (isConnecting) {
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("streaming_connecting_banner"),
-                        color = Color(0xFF1E1E26),
-                        border = BorderStroke(1.dp, Color(0xFF333342)),
+                        color = WarningAmber.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, WarningAmber.copy(alpha = 0.35f)),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Row(
                             modifier = Modifier.padding(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Outlined.Router, contentDescription = "Listening", tint = WarningAmber, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.Router, contentDescription = "Searching", tint = WarningAmber, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Listening on port ${prefs.targetPort} • Waiting for connection...",
+                                text = "Receiver (${prefs.targetHost}) • No device found (Tap ↻ to retry)",
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Medium,
                                 color = WarningAmber,

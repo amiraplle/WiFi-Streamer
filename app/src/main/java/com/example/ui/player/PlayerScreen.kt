@@ -94,6 +94,7 @@ import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.StreamEmerald
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.WarningAmber
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -161,7 +162,17 @@ fun PlayerScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    val isTransmitting = isPlaying || uiState.isStreamingActive || com.example.service.StreamingService.isStreaming
+                    val streamState = com.example.service.StreamingService.instance?.telemetry?.value?.streamingState
+                    val isServiceStreaming = streamState == com.example.model.StreamingState.STREAMING
+                    val isServiceConnecting = streamState == com.example.model.StreamingState.CONNECTING || streamState == com.example.model.StreamingState.RECONNECTING
+                    val isTransmitting = (isPlaying || uiState.isStreamingActive || com.example.service.StreamingService.isStreaming) && isServiceStreaming
+                    val isWaiting = (isPlaying || uiState.isStreamingActive || com.example.service.StreamingService.isStreaming) && isServiceConnecting
+                    val badgeColor = when {
+                        isTransmitting -> StreamEmerald
+                        isWaiting -> WarningAmber
+                        else -> Color(0xFF8E92A4)
+                    }
+
                     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
                     val pulseScale by infiniteTransition.animateFloat(
                         initialValue = 0.85f,
@@ -186,10 +197,18 @@ fun PlayerScreen(
 
                         Surface(
                             shape = RoundedCornerShape(999.dp),
-                            color = if (isTransmitting) Color(0xFF0D2818) else Color(0xFF181B24),
+                            color = when {
+                                isTransmitting -> Color(0xFF0D2818)
+                                isWaiting -> WarningAmber.copy(alpha = 0.15f)
+                                else -> Color(0xFF181B24)
+                            },
                             border = BorderStroke(
                                 1.dp,
-                                if (isTransmitting) Color(0xFF1B5E20) else Color(0xFF282C3C)
+                                when {
+                                    isTransmitting -> Color(0xFF1B5E20)
+                                    isWaiting -> WarningAmber.copy(alpha = 0.4f)
+                                    else -> Color(0xFF282C3C)
+                                }
                             ),
                             modifier = Modifier.testTag("transmission_indicator_badge")
                         ) {
@@ -201,18 +220,22 @@ fun PlayerScreen(
                                 Box(
                                     modifier = Modifier
                                         .size(6.dp)
-                                        .scale(if (isTransmitting) pulseScale else 1f)
+                                        .scale(if (isTransmitting || isWaiting) pulseScale else 1f)
                                         .clip(CircleShape)
-                                        .background(if (isTransmitting) StreamEmerald else Color(0xFF6E7285))
+                                        .background(badgeColor)
                                 )
                                 Text(
-                                    text = if (isTransmitting) "TRANSMITTING" else "STANDBY",
+                                    text = when {
+                                        isTransmitting -> "TRANSMITTING"
+                                        isWaiting -> "NO DEVICE FOUND"
+                                        else -> "STANDBY"
+                                    },
                                     style = MaterialTheme.typography.labelSmall.copy(
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
                                         letterSpacing = 0.6.sp
                                     ),
-                                    color = if (isTransmitting) StreamEmerald else Color(0xFF8E92A4)
+                                    color = badgeColor
                                 )
                             }
                         }

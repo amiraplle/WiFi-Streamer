@@ -11,6 +11,13 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /**
  * High-performance, zero-latency UDP audio streaming client.
@@ -48,6 +55,9 @@ class UdpStreamClient(
     private var datagramPacket: DatagramPacket? = null
     private var currentFormat: AudioStreamFormat = AudioStreamFormat.FORMAT_48K_16BIT_STEREO
 
+    private val clientScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var discoveryJob: Job? = null
+
     @Synchronized
     fun connectAndStart(
         host: String,
@@ -58,19 +68,29 @@ class UdpStreamClient(
     ): Boolean {
         isManuallyStopped.set(false)
         currentFormat = format
-        onStateChanged(StreamingState.CONNECTING, null)
+        targetPort = port
+        discoveryJob?.cancel()
+
+        onStateChanged(StreamingState.CONNECTING, "Searching for $host...")
 
         return try {
             Log.i(TAG, "Initializing UDP audio stream to $host:$port (QoS=$qosEnabled)")
-            val address = try {
+            var resolvedAddress: InetAddress? = null
+            try {
                 val resolved = InetAddress.getByName(host)
-                lastKnownResolvedAddress = resolved
-                resolved
-            } catch (e: Exception) {
-                lastKnownResolvedAddress ?: InetAddress.getByName("255.255.255.255").also {
-                    Log.w(TAG, "Host $host offline or unresolvable; starting UDP stream to broadcast 255.255.255.255")
+                if (!resolved.isLoopbackAddress && resolved.hostAddress != "255.255.255.255") {
+                    resolvedAddress = resolved
+                    lastKnownResolvedAddress = resolved
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "Host $host is currently offline or unresolvable: ${e.message}")
             }
+
+            val isDeviceFound = resolvedAddress != null
+            val address = resolvedAddress ?: lastKnownResolvedAddress ?: InetAddress.getByName("255.255.255.255").also {
+                Log.w(TAG, "No ESP32 receiver found at $host; broadcasting to 255.255.255.255 while waiting for receiver")
+            }
+
             val newSocket = DatagramSocket()
 
             try {
@@ -89,24 +109,30 @@ class UdpStreamClient(
             newSocket.sendBufferSize = 128 * 1024
             newSocket.broadcast = true
 
-            // Send initial format header if configured (optional C3 sync or WAV header)
-            val header = C3Protocol.getInitialHeader(format, headerMode)
-            if (header != null && header.isNotEmpty()) {
-                val headerPacket = DatagramPacket(header, header.size, address, port)
-                newSocket.send(headerPacket)
-                totalBytesWritten.addAndGet(header.size.toLong())
-                onBytesTransmitted(totalBytesWritten.get())
-                Log.i(TAG, "Sent ${header.size}-byte format header via UDP to $host:$port")
-            }
-
             targetAddress = address
-            targetPort = port
             socket = newSocket
             datagramPacket = DatagramPacket(packetBuffer, 0, address, port)
             isConnected.set(true)
 
-            onStateChanged(StreamingState.STREAMING, null)
-            Log.i(TAG, "UDP audio stream active and transmitting to $host:$port (Payload max: ${MAX_UDP_PAYLOAD}B)")
+            if (isDeviceFound) {
+                // Send initial format header if configured (optional C3 sync or WAV header)
+                val header = C3Protocol.getInitialHeader(format, headerMode)
+                if (header != null && header.isNotEmpty()) {
+                    val headerPacket = DatagramPacket(header, header.size, address, port)
+                    newSocket.send(headerPacket)
+                    totalBytesWritten.addAndGet(header.size.toLong())
+                    onBytesTransmitted(totalBytesWritten.get())
+                    Log.i(TAG, "Sent ${header.size}-byte format header via UDP to $host:$port")
+                }
+                onStateChanged(StreamingState.STREAMING, address.hostAddress)
+                Log.i(TAG, "ESP32 receiver verified online at ${address.hostAddress}. Streaming active.")
+            } else {
+                // Device not found: Keep in CONNECTING state with clear status message
+                onStateChanged(StreamingState.CONNECTING, "No device found ($host)")
+                Log.w(TAG, "UDP audio stream active in background, but no device found at $host. State: CONNECTING")
+                // Probe actively for 20 seconds max, then stop to strictly conserve phone battery and CPU
+                startDiscoveryLoop(host, port, headerMode)
+            }
             true
         } catch (e: Exception) {
             val errMsg = "Failed to initialize UDP socket to $host:$port: ${e.message}"
@@ -114,6 +140,52 @@ class UdpStreamClient(
             closeSocket()
             onStateChanged(StreamingState.ERROR, errMsg)
             false
+        }
+    }
+
+    private fun startDiscoveryLoop(host: String, port: Int, headerMode: HeaderMode) {
+        discoveryJob?.cancel()
+        discoveryJob = clientScope.launch {
+            val maxAttempts = 10 // 10 attempts x 2s = 20s search timeout
+            var attempts = 0
+
+            while (isActive && isConnected.get() && !isManuallyStopped.get() && attempts < maxAttempts) {
+                delay(2000)
+                if (!isActive || !isConnected.get() || isManuallyStopped.get()) break
+                attempts++
+
+                try {
+                    val check = InetAddress.getByName(host)
+                    val isValid = !check.isLoopbackAddress && check.hostAddress != "255.255.255.255"
+
+                    if (isValid) {
+                        Log.i(TAG, "ESP32 receiver discovered at ${check.hostAddress}! Switching state to STREAMING.")
+                        targetAddress = check
+                        lastKnownResolvedAddress = check
+                        datagramPacket = DatagramPacket(packetBuffer, 0, check, port)
+
+                        val header = C3Protocol.getInitialHeader(currentFormat, headerMode)
+                        if (header != null && header.isNotEmpty()) {
+                            try {
+                                val headerPacket = DatagramPacket(header, header.size, check, port)
+                                socket?.send(headerPacket)
+                            } catch (_: Exception) {}
+                        }
+
+                        onStateChanged(StreamingState.STREAMING, check.hostAddress)
+                        // Device found, exit background probing loop immediately
+                        return@launch
+                    }
+                } catch (_: Exception) {
+                    // Host not resolved yet
+                }
+            }
+
+            // Active 20s search window ended: cease all background network probing to save battery & CPU
+            if (isConnected.get() && !isManuallyStopped.get() && (targetAddress == null || targetAddress?.hostAddress == "255.255.255.255")) {
+                Log.i(TAG, "Search timeout (20s) reached for $host. Stopped background probing to save battery.")
+                onStateChanged(StreamingState.CONNECTING, "No device found ($host)")
+            }
         }
     }
 
@@ -189,6 +261,8 @@ class UdpStreamClient(
 
     private fun closeSocket() {
         isConnected.set(false)
+        discoveryJob?.cancel()
+        discoveryJob = null
         try {
             socket?.close()
         } catch (_: Exception) {}
