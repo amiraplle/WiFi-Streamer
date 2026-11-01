@@ -44,8 +44,8 @@ val NeonVioletContainer = SlateSilverContainer
 val StreamEmerald = Color(0xFF00E676)
 val StreamEmeraldContainer = Color(0xFF0A2214)
 
-// Low-contrast subdued warnings/errors
-val WarningAmber = Color(0xFF98A0B2)
+// Glowing amber for waiting/searching/warning state
+val WarningAmber = Color(0xFFFFB300)
 val ErrorCoral = Color(0xFFE06C75)
 
 val TextPrimary = Color(0xFFFFFFFF)
