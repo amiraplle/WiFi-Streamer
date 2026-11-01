@@ -28,11 +28,8 @@ class PacedAudioTransmitter(
     private val isRunning = AtomicBoolean(false)
     private var transmitterThread: Thread? = null
 
-    // Frame-aligned packet sizes:
-    // 24-bit stereo (6 bytes/frame) -> 1152 bytes (192 frames)
-    // 16-bit stereo (4 bytes/frame) -> 1024 bytes (256 frames)
-    // 32-bit stereo (8 bytes/frame) -> 1024 bytes (128 frames)
-    // All sizes fit in a single unfragmented UDP datagram (MTU < 1400)
+    // Frame-aligned packet size:
+    // 16-bit stereo (4 bytes/frame) -> 1024 bytes (256 frames, MTU < 1400)
     private val MAX_PACKET_CAPACITY = 1400
     private val chunkBuffer = ByteArray(MAX_PACKET_CAPACITY)
     private val silenceChunk = ByteArray(MAX_PACKET_CAPACITY)

@@ -32,10 +32,6 @@ data class AudioStreamFormat(
     companion object {
         val FORMAT_48K_16BIT_STEREO = AudioStreamFormat(48000, 16, 2)
 
-        // Aliases for compatibility
-        val FORMAT_48K_24BIT_STEREO = FORMAT_48K_16BIT_STEREO
-        val FORMAT_48K_32BIT_STEREO = FORMAT_48K_16BIT_STEREO
-
         val ALL_PRESETS = listOf(
             FORMAT_48K_16BIT_STEREO
         )

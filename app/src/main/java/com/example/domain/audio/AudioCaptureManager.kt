@@ -82,11 +82,7 @@ class AudioCaptureManager(
         onCaptureStatusChanged(CaptureStatus.INITIALIZING, null)
 
         val channelConfig = format.androidChannelConfig
-        val audioEncoding = if ((format.bitDepth == 32 || format.bitDepth == 24) && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            AudioFormat.ENCODING_PCM_16BIT
-        } else {
-            format.androidEncoding
-        }
+        val audioEncoding = AudioFormat.ENCODING_PCM_16BIT
         actualHardwareEncoding = audioEncoding
         val sampleRate = format.sampleRate
 
@@ -539,36 +535,13 @@ class AudioCaptureManager(
             val frac = (srcPos - srcIndex).toFloat()
 
             for (ch in 0 until channels) {
-                if (bitDepth == 16) {
-                    val offset1 = (srcIndex * channels + ch) * 2
-                    val offset2 = (nextIndex * channels + ch) * 2
-                    val s1 = ((inputPcm[offset1 + 1].toInt() shl 8) or (inputPcm[offset1].toInt() and 0xFF)).toShort()
-                    val s2 = ((inputPcm[offset2 + 1].toInt() shl 8) or (inputPcm[offset2].toInt() and 0xFF)).toShort()
-                    val interp = (s1 + frac * (s2 - s1)).toInt().coerceIn(-32768, 32767).toShort()
-                    output[outIdx++] = (interp.toInt() and 0xFF).toByte()
-                    output[outIdx++] = ((interp.toInt() shr 8) and 0xFF).toByte()
-                } else if (bitDepth == 24) {
-                    val offset1 = (srcIndex * channels + ch) * 3
-                    val offset2 = (nextIndex * channels + ch) * 3
-                    var s1 = (inputPcm[offset1 + 2].toInt() shl 16) or ((inputPcm[offset1 + 1].toInt() and 0xFF) shl 8) or (inputPcm[offset1].toInt() and 0xFF)
-                    if ((s1 and 0x800000) != 0) s1 = s1 or 0xFF000000.toInt()
-                    var s2 = (inputPcm[offset2 + 2].toInt() shl 16) or ((inputPcm[offset2 + 1].toInt() and 0xFF) shl 8) or (inputPcm[offset2].toInt() and 0xFF)
-                    if ((s2 and 0x800000) != 0) s2 = s2 or 0xFF000000.toInt()
-                    val interp = (s1 + frac * (s2 - s1)).toInt().coerceIn(-8388608, 8388607)
-                    output[outIdx++] = (interp and 0xFF).toByte()
-                    output[outIdx++] = ((interp shr 8) and 0xFF).toByte()
-                    output[outIdx++] = ((interp shr 16) and 0xFF).toByte()
-                } else {
-                    val offset1 = (srcIndex * channels + ch) * 4
-                    val offset2 = (nextIndex * channels + ch) * 4
-                    val s1 = (inputPcm[offset1 + 3].toInt() shl 24) or ((inputPcm[offset1 + 2].toInt() and 0xFF) shl 16) or ((inputPcm[offset1 + 1].toInt() and 0xFF) shl 8) or (inputPcm[offset1].toInt() and 0xFF)
-                    val s2 = (inputPcm[offset2 + 3].toInt() shl 24) or ((inputPcm[offset2 + 2].toInt() and 0xFF) shl 16) or ((inputPcm[offset2 + 1].toInt() and 0xFF) shl 8) or (inputPcm[offset2].toInt() and 0xFF)
-                    val interp = (s1.toDouble() + frac.toDouble() * (s2.toDouble() - s1.toDouble())).toLong().coerceIn(-2147483648L, 2147483647L).toInt()
-                    output[outIdx++] = (interp and 0xFF).toByte()
-                    output[outIdx++] = ((interp shr 8) and 0xFF).toByte()
-                    output[outIdx++] = ((interp shr 16) and 0xFF).toByte()
-                    output[outIdx++] = ((interp shr 24) and 0xFF).toByte()
-                }
+                val offset1 = (srcIndex * channels + ch) * 2
+                val offset2 = (nextIndex * channels + ch) * 2
+                val s1 = ((inputPcm[offset1 + 1].toInt() shl 8) or (inputPcm[offset1].toInt() and 0xFF)).toShort()
+                val s2 = ((inputPcm[offset2 + 1].toInt() shl 8) or (inputPcm[offset2].toInt() and 0xFF)).toShort()
+                val interp = (s1 + frac * (s2 - s1)).toInt().coerceIn(-32768, 32767).toShort()
+                output[outIdx++] = (interp.toInt() and 0xFF).toByte()
+                output[outIdx++] = ((interp.toInt() shr 8) and 0xFF).toByte()
             }
         }
         return output
