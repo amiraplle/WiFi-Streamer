@@ -59,7 +59,14 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-          # Ensure production upload keystore exists
+          # Restore or generate production upload keystore
+          if [ ! -f "$PROJECT_ROOT/my-upload-key.jks" ]; then
+            if [ -f "$PROJECT_ROOT/my-upload-key.jks.base64" ]; then
+              echo "Restoring my-upload-key.jks from my-upload-key.jks.base64..."
+              base64 -d "$PROJECT_ROOT/my-upload-key.jks.base64" > "$PROJECT_ROOT/my-upload-key.jks" || true
+            fi
+          fi
+
           if [ ! -f "$PROJECT_ROOT/my-upload-key.jks" ]; then
             echo "Generating fallback my-upload-key.jks..."
             keytool -genkeypair -v -keystore "$PROJECT_ROOT/my-upload-key.jks" \

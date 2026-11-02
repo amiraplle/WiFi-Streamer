@@ -26,6 +26,10 @@ android {
       storePassword = System.getenv("STORE_PASSWORD") ?: "audiostudio2026"
       keyAlias = "upload"
       keyPassword = System.getenv("KEY_PASSWORD") ?: "audiostudio2026"
+      enableV1Signing = true
+      enableV2Signing = true
+      enableV3Signing = true
+      enableV4Signing = true
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")
