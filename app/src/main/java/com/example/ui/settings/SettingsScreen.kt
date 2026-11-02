@@ -1054,25 +1054,74 @@ fun SettingsScreen(
 
                 HorizontalDivider(color = Color(0xFF22222E))
 
-                // About Item
-                Row(
+                // About & App Information
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    SettingItemHeader(icon = Icons.Outlined.Info, label = "Audio Studio (v1.6)")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SettingItemHeader(icon = Icons.Outlined.Info, label = "Audio Studio")
 
-                    Surface(
-                        color = Color(0xFF1E1E26),
-                        border = BorderStroke(1.dp, Color(0xFF282834)),
-                        shape = RoundedCornerShape(8.dp)
+                        Surface(
+                            color = Color(0xFF1E1E26),
+                            border = BorderStroke(1.dp, Color(0xFF282834)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = "v3.0.0",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = StreamEmerald,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 25.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "MIT License",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            text = "Developer",
+                            style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            text = "Amir.Inc",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary,
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 25.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Package",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            text = "com.audiostudio.com",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.sp
                         )
                     }
                 }

@@ -22,4 +22,8 @@
     <string name="notification_channel_desc">Active background audio streaming notification</string>
     <string name="notification_stop">Stop</string>
     <string name="notification_reconnect">Reconnect</string>
+
+    <string name="developer_name">Amir.Inc</string>
+    <string name="app_version">3.0.0</string>
+    <string name="package_name">com.audiostudio.com</string>
 </resources>

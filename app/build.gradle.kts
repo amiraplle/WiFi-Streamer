@@ -10,11 +10,11 @@ android {
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.example"
+    applicationId = "com.audiostudio.com"
     minSdk = 24
     targetSdk = 36
-    versionCode = 2
-    versionName = "1.5L"
+    versionCode = 300
+    versionName = "3.0.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
