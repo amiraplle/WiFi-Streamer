@@ -51,7 +51,7 @@ class ReceiverDiscoveryManager(private val context: Context) {
         acquireMulticastLock()
 
         scanJob = scope.launch {
-            // 1. Proactively probe default mDNS hostnames c3music.local & s3music.local
+            // 1. Proactively probe default mDNS hostnames
             launch { probeDirectMdns("c3music.local", "ESP32-C3") }
             launch { probeDirectMdns("s3music.local", "ESP32-S3") }
 
