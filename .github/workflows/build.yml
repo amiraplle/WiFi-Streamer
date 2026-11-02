@@ -59,6 +59,15 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
+          # Ensure production upload keystore exists
+          if [ ! -f "$PROJECT_ROOT/my-upload-key.jks" ]; then
+            echo "Generating fallback my-upload-key.jks..."
+            keytool -genkeypair -v -keystore "$PROJECT_ROOT/my-upload-key.jks" \
+              -storepass audiostudio2026 -alias upload -keypass audiostudio2026 \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Audio Studio,OU=Audio,O=AudioStudio,L=SanFrancisco,ST=CA,C=US"
+          fi
+
           # Accept Android SDK licenses
           if [ -n "$ANDROID_HOME" ]; then
             mkdir -p "$ANDROID_HOME/licenses" 2>/dev/null || true
@@ -71,19 +80,26 @@ jobs:
             chmod +x "$PROJECT_ROOT/gradlew"
           fi
 
-      - name: Build Debug APK
+      - name: Build Android APKs (Release & Debug)
         run: |
           cd ${{ env.PROJECT_ROOT }}
           if [ -f "./gradlew" ]; then
-            ./gradlew :app:assembleDebug --no-daemon
+            ./gradlew :app:assembleRelease :app:assembleDebug --no-daemon
           else
-            gradle :app:assembleDebug --no-daemon
+            gradle :app:assembleRelease :app:assembleDebug --no-daemon
           fi
+
+      - name: Upload Release APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-studio-release-apk
+          path: "**/build/outputs/apk/release/*.apk"
+          retention-days: 14
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: c3-audio-streamer-debug-apk
+          name: audio-studio-debug-apk
           path: "**/build/outputs/apk/debug/*.apk"
           retention-days: 14
 
