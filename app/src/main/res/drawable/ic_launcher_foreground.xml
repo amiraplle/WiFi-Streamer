@@ -1,8 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item
-        android:width="66dp"
-        android:height="66dp"
-        android:drawable="@drawable/c3_golden_icon"
-        android:gravity="center" />
-</layer-list>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Golden amber circular badge -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M54,26 A28,28 0 1,0 54,82 A28,28 0 1,0 54,26 Z" />
+    <!-- Speaker cone -->
+    <path
+        android:fillColor="#1A1A1A"
+        android:pathData="M43,44 L43,64 L50,64 L60,73 L60,35 L50,44 Z" />
+    <!-- Sound wave 1 -->
+    <path
+        android:strokeColor="#1A1A1A"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:pathData="M66,48 A9,9 0 0,1 66,60" />
+    <!-- Sound wave 2 -->
+    <path
+        android:strokeColor="#1A1A1A"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:pathData="M72,42 A18,18 0 0,1 72,66" />
+</vector>

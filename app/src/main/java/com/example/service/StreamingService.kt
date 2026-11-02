@@ -38,6 +38,7 @@ import com.example.AppContainer
 import com.example.C3StreamerApplication
 import com.example.MainActivity
 import com.example.R
+import com.example.data.network.C3Protocol
 import com.example.data.network.PacedAudioTransmitter
 import com.example.data.network.UdpStreamClient
 import com.example.data.preferences.UserPreferences
@@ -89,6 +90,10 @@ class StreamingService : Service() {
     private var reconnectAttempts = 0
     private val isStopping = AtomicBoolean(false)
     private var savedPhoneVolume: Int = -1
+
+    private var lastSentTitle: String? = null
+    private var lastSentArtist: String? = null
+    private var metadataSendJob: Job? = null
 
     private val _telemetry = MutableStateFlow(StreamTelemetry())
     val telemetry: StateFlow<StreamTelemetry> = _telemetry.asStateFlow()
@@ -568,7 +573,13 @@ class StreamingService : Service() {
             captureStatus = CaptureStatus.CAPTURING
         )
         val player = AppContainer.getPlayerManager(this)
-        updatePlayerSessionAndNotification(player.uiState.value)
+        val pUi = player.uiState.value
+        updatePlayerSessionAndNotification(pUi)
+        val t = pUi.currentTrack
+        if (t != null && pUi.playerState == PlayerState.PLAYING) {
+            lastSentTitle = null
+            dispatchMetadata(t.title, t.artist, t.album)
+        }
     }
 
     fun switchToSystemAudio(resultCode: Int, data: Intent?) {
@@ -623,6 +634,8 @@ class StreamingService : Service() {
         _telemetry.value = _telemetry.value.copy(
             audioSource = AudioSourceType.INTERNAL_AUDIO
         )
+        lastSentTitle = null
+        dispatchMetadata("System Audio Capture", "Android Device", "Live Stream")
         updateNotification()
     }
 
@@ -663,6 +676,16 @@ class StreamingService : Service() {
         if (state == StreamingState.STREAMING) {
             // Reset retry count on successful connection
             reconnectAttempts = 0
+            // Push active media metadata to receiver web app immediately
+            val pUi = AppContainer.getPlayerManager(this).uiState.value
+            val trk = pUi.currentTrack
+            if (trk != null && pUi.playerState == PlayerState.PLAYING) {
+                lastSentTitle = null
+                dispatchMetadata(trk.title, trk.artist, trk.album)
+            } else if (activeStreamSource == "system") {
+                lastSentTitle = null
+                dispatchMetadata("System Audio Capture", "Android Device", "Live Stream")
+            }
         } else if (state == StreamingState.DISCONNECTED && !isStopping.get()) {
             val prefs = AppContainer.getPreferences(this).userPreferences.value
             if (prefs.autoReconnect) {
@@ -739,6 +762,8 @@ class StreamingService : Service() {
         val clamped = volume.coerceIn(0, 100)
         captureManager?.volumePercent = clamped
         _telemetry.value = _telemetry.value.copy(volumePercent = clamped)
+        val packet = C3Protocol.createVolumePacket(clamped)
+        udpClient?.sendControlPacket(packet)
     }
 
     fun adjustRemoteVolume(delta: Int) {
@@ -752,6 +777,30 @@ class StreamingService : Service() {
     fun setMuted(muted: Boolean) {
         captureManager?.isMuted = muted
         _telemetry.value = _telemetry.value.copy(isMuted = muted)
+    }
+
+    fun dispatchMetadata(title: String, artist: String, album: String = "") {
+        if (title == lastSentTitle && artist == lastSentArtist) return
+        lastSentTitle = title
+        lastSentArtist = artist
+        metadataSendJob?.cancel()
+        metadataSendJob = serviceScope.launch {
+            val packet = C3Protocol.createMetadataPacket(title, artist, album)
+            // Send twice with brief 50ms gap to ensure reception over UDP Wi-Fi
+            udpClient?.sendControlPacket(packet)
+            delay(50)
+            udpClient?.sendControlPacket(packet)
+        }
+    }
+
+    fun clearReceiverMetadata() {
+        lastSentTitle = null
+        lastSentArtist = null
+        metadataSendJob?.cancel()
+        metadataSendJob = serviceScope.launch {
+            val packet = C3Protocol.createMetadataPacket("", "", "")
+            udpClient?.sendControlPacket(packet)
+        }
     }
 
     fun updateTargetBufferMs(targetMs: Int) {
@@ -900,12 +949,19 @@ class StreamingService : Service() {
                 .build()
             mediaSession?.setPlaybackState(pbState)
             mediaSession?.isActive = isPlaying || isPaused
+
+            if (isPlaying) {
+                dispatchMetadata(track.title, track.artist, track.album)
+            }
         }
 
         // When player goes IDLE, immediately stop the service and dismiss notification
-        if (playerUi.playerState == PlayerState.IDLE && isStreaming && activeStreamSource == "DIRECT_AUDIO") {
-            stopStreaming()
-            return
+        if (playerUi.playerState == PlayerState.IDLE) {
+            clearReceiverMetadata()
+            if (isStreaming && activeStreamSource == "DIRECT_AUDIO") {
+                stopStreaming()
+                return
+            }
         }
 
         updateNotification()
@@ -1052,6 +1108,7 @@ class StreamingService : Service() {
         udpClient?.disconnect(isManual = true)
         captureManager?.stopCapture()
         ringBuffer.clear()
+        clearReceiverMetadata()
 
         try {
             mediaProjection?.stop()

@@ -1,6 +1,0 @@
-{
-  "summary":  "Architecture and engineering blueprint for porting the proven C3 audio firmware to a headless ESP32 WROOM Classic Bluetooth A2DP receiver, followed by a roadmap for unified dual-mode transmission (Classic Bluetooth / Wi-Fi UDP) with Web OTA and I2S DAC output.",
-  "updatedAt":  "2026-10-28T09:02:49.527825324Z",
-  "requestFeedback":  true,
-  "userFacing":  true
-}

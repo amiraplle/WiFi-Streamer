@@ -30,6 +30,41 @@ object C3Protocol {
         return buffer.array()
     }
 
+    // Magic: "C3MD" (0x43, 0x33, 0x4D, 0x44) for C3 Live Metadata / In-Band Control
+    val C3_META_MAGIC = byteArrayOf(0x43, 0x33, 0x4D, 0x44)
+
+    /**
+     * Builds a UDP Metadata packet for C3 Receiver.
+     * Header: "C3MD" (4 bytes)
+     * Payload: UTF-8 JSON string {"title":"...","artist":"...","album":"..."}
+     */
+    fun createMetadataPacket(title: String, artist: String, album: String = ""): ByteArray {
+        val safeTitle = title.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", "")
+        val safeArtist = artist.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", "")
+        val safeAlbum = album.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", "")
+        val json = """{"title":"$safeTitle","artist":"$safeArtist","album":"$safeAlbum"}"""
+        val jsonBytes = json.toByteArray(Charsets.UTF_8)
+        val buffer = ByteBuffer.allocate(C3_META_MAGIC.size + jsonBytes.size)
+        buffer.put(C3_META_MAGIC)
+        buffer.put(jsonBytes)
+        return buffer.array()
+    }
+
+    /**
+     * Builds a UDP Volume Control packet for C3 Receiver.
+     * Header: "C3MD" (4 bytes)
+     * Payload: UTF-8 JSON string {"volume":"50"}
+     */
+    fun createVolumePacket(volumePercent: Int): ByteArray {
+        val safeVol = volumePercent.coerceIn(0, 100)
+        val json = """{"volume":"$safeVol"}"""
+        val jsonBytes = json.toByteArray(Charsets.UTF_8)
+        val buffer = ByteBuffer.allocate(C3_META_MAGIC.size + jsonBytes.size)
+        buffer.put(C3_META_MAGIC)
+        buffer.put(jsonBytes)
+        return buffer.array()
+    }
+
     /**
      * Determines whether a header should be transmitted at connection start
      * based on chosen format and header mode.

@@ -248,6 +248,26 @@ class UdpStreamClient(
         }
     }
 
+    /**
+     * Transmits an in-band or control datagram (such as live metadata or volume)
+     * directly to the receiver over the established UDP stream socket (Port 50005).
+     */
+    fun sendControlPacket(packetBytes: ByteArray): Boolean {
+        val s = socket ?: return false
+        val addr = targetAddress ?: lastKnownResolvedAddress ?: return false
+        if (!isConnected.get() || s.isClosed) return false
+
+        return try {
+            val packet = DatagramPacket(packetBytes, packetBytes.size, addr, targetPort)
+            s.send(packet)
+            Log.d(TAG, "Sent UDP control packet (${packetBytes.size} bytes) to $addr:$targetPort")
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed sending UDP control packet: ${e.message}")
+            false
+        }
+    }
+
     @Synchronized
     fun disconnect(isManual: Boolean = false) {
         isManuallyStopped.set(isManual)
@@ -271,6 +291,8 @@ class UdpStreamClient(
     }
 
     fun isConnected(): Boolean = isConnected.get()
+
+    fun getResolvedAddress(): InetAddress? = targetAddress ?: lastKnownResolvedAddress
 
     /**
      * Dynamically updates the socket QoS TrafficClass (DSCP 46 / WMM Voice) on the fly.
